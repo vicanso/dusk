@@ -2,10 +2,7 @@ package dusk
 
 import (
 	"errors"
-	"net/http"
-	"net/url"
 	"testing"
-	"time"
 
 	"github.com/h2non/gock"
 )
@@ -283,120 +280,6 @@ func TestPut(t *testing.T) {
 	})
 }
 
-func TestAddBeforeRequset(t *testing.T) {
-	defer gock.Off()
-	t.Run("add global before request hook", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		localhost := "localhost"
-		mockErr := errors.New("abcd")
-		AddBeforeRequest(func(_ *Dusk, req *http.Request) (err error) {
-			if req.URL.RequestURI() == "/users/me" {
-				return mockErr
-			}
-			// change url for localhost
-			if req.Host != localhost {
-				return
-			}
-			req.URL, _ = url.Parse("http://aslant.site/")
-			req.Host = "aslant.site"
-			return
-		})
-
-		d := New()
-		resp, body, err := d.Get("http://"+localhost+"/", nil)
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 || len(body) == 0 {
-			t.Fatalf("change request url fail")
-		}
-
-		d = New()
-		_, _, err = d.Get("http://localhost/users/me", nil)
-		if err != mockErr {
-			t.Fatalf("hook return error fail")
-		}
-	})
-
-	t.Run("add before request hook", func(t *testing.T) {
-		defer gock.Off()
-
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		startedAt := "startedAt"
-		now := time.Now().UnixNano()
-		d.AddBeforeRequest(func(d *Dusk, req *http.Request) (err error) {
-			d.SetValue(startedAt, now)
-			return
-		})
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		v := d.GetValue(startedAt).(int64)
-		if v != now {
-			t.Fatalf("get/set value fail")
-		}
-	})
-}
-
-func TestAddBeforeResponse(t *testing.T) {
-	defer gock.Off()
-	t.Run("add global before response hook", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		done := false
-		AddBeforeResponse(func(d *Dusk, resp *http.Response) (err error) {
-			done = true
-			return
-		})
-		d := New()
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if !done {
-			t.Fatalf("add before response hook fail")
-		}
-	})
-
-	t.Run("add before response hook", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		mockErr := errors.New("abcd")
-		d.AddBeforeResponse(func(d *Dusk, resp *http.Response) (err error) {
-			return mockErr
-		})
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err != mockErr {
-			t.Fatalf("hook return error fail")
-		}
-	})
-}
-
 func TestEnableTimelineTrace(t *testing.T) {
 	defer gock.Off()
 	gock.New("http://aslant.site").
@@ -408,7 +291,7 @@ func TestEnableTimelineTrace(t *testing.T) {
 
 	d := New()
 	d.EnableTimelineTrace = true
-	d.On(EventResponse, func(d *Dusk) {
+	d.On(EventDone, func(d *Dusk) {
 		stats := d.GetTimelineStats()
 		if stats == nil || stats.Total.Nanoseconds() == 0 {
 			t.Fatalf("get timeline stats fail")
@@ -424,5 +307,145 @@ func TestEnableTimelineTrace(t *testing.T) {
 
 	if len(body) == 0 {
 		t.Fatalf("get request body is empty")
+	}
+}
+
+func TestOnEvent(t *testing.T) {
+	defer gock.Off()
+	t.Run("event step", func(t *testing.T) {
+
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+
+		d := New()
+		step := 0
+		d.On(EventRequest, func(_ *Dusk) {
+			step++
+			if step != 1 {
+				t.Fatalf("the request event should be step 1")
+			}
+		})
+		d.On(EventResponse, func(_ *Dusk) {
+			step++
+			if step != 2 {
+				t.Fatalf("the response event should be step 2")
+			}
+		})
+		d.On(EventDone, func(_ *Dusk) {
+			step++
+			if step != 3 {
+				t.Fatalf("the done event should be step 3")
+			}
+		})
+
+		resp, body, err := d.Get("http://aslant.site/", nil)
+		if err != nil {
+			t.Fatalf("get request fail, %v", err)
+		}
+		if resp.StatusCode != 200 {
+			t.Fatalf("get request fail, %d", resp.StatusCode)
+		}
+
+		if len(body) == 0 {
+			t.Fatalf("get request body is empty")
+		}
+	})
+
+	t.Run("error event", func(t *testing.T) {
+		d := New()
+		done := false
+		d.On(EventError, func(_ *Dusk) {
+			if d.Error != nil {
+				done = true
+			}
+		})
+		_, _, err := d.Get("http://aslant.site/", nil)
+		if err == nil || !done {
+			t.Fatalf("error event is not emitted")
+		}
+	})
+
+	t.Run("create an error on request event", func(t *testing.T) {
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+		customError := errors.New("abc")
+		d := New()
+		done := false
+		d.On(EventRequest, func(d *Dusk) {
+			d.Error = customError
+		})
+		d.On(EventError, func(_ *Dusk) {
+			done = true
+		})
+		_, _, err := d.Get("http://aslant.site/", nil)
+		if err != customError {
+			t.Fatalf("create custom error on event fail")
+		}
+		if !done {
+			t.Fatalf("miss error event")
+		}
+	})
+
+	t.Run("create an error on response event", func(t *testing.T) {
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+		customError := errors.New("abc")
+		d := New()
+		done := false
+		d.On(EventResponse, func(d *Dusk) {
+			d.Error = customError
+		})
+		d.On(EventError, func(_ *Dusk) {
+			done = true
+		})
+		_, _, err := d.Get("http://aslant.site/", nil)
+		if err != customError {
+			t.Fatalf("create custom error on event fail")
+		}
+		if !done {
+			t.Fatalf("miss error event")
+		}
+	})
+}
+
+func TestGetSetValue(t *testing.T) {
+	d := New()
+	key := "name"
+	value := "tree.xie"
+	d.SetValue(key, value)
+	v := d.GetValue(key).(string)
+	if v != value {
+		t.Fatalf("get set value fail")
+	}
+}
+
+func TestReset(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(200).
+		JSON(map[string]string{
+			"name": "tree.xie",
+		})
+	d := New()
+	d.Get("http://aslant.site/", nil)
+	d.Reset()
+	if d.Request != nil ||
+		d.Response != nil ||
+		d.Error != nil ||
+		d.M != nil {
+		t.Fatalf("reset fail")
 	}
 }

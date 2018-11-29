@@ -9,15 +9,17 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
 )
 
 var (
-	defaultClient             = &http.Client{}
-	globalBeforeRequestHooks  = make([]BeforeRequestHook, 0)
-	globalBeforeResponseHooks = make([]BeforeResponseHook, 0)
-	json                      = jsoniter.ConfigCompatibleWithStandardLibrary
+	// 设置默认10秒超时
+	defaultClient = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	json = jsoniter.ConfigCompatibleWithStandardLibrary
 )
 
 const (
@@ -30,13 +32,11 @@ const (
 	EventResponse = "response"
 	// EventError error event
 	EventError = "error"
+	// EventDone done event
+	EventDone = "done"
 )
 
 type (
-	// BeforeRequestHook before request hook function
-	BeforeRequestHook func(*Dusk, *http.Request) error
-	// BeforeResponseHook before response hook function
-	BeforeResponseHook func(*Dusk, *http.Response) error
 	// Listener event listener
 	Listener func(*Dusk)
 	// Event event struct
@@ -52,14 +52,12 @@ type (
 		Request *http.Request
 		// Response http response
 		Response *http.Response
+		// Error error
+		Error error
 		// Client http client
 		Client *http.Client
 		// URLPrefix the prefix of request url
 		URLPrefix string
-		// BeforeRequestHooks the request before hooks
-		BeforeRequestHooks []BeforeRequestHook
-		// BeforeResponseHooks the response before hooks
-		BeforeResponseHooks []BeforeResponseHook
 		// M data for dusk
 		M map[string]interface{}
 		// http timeline struct
@@ -84,30 +82,14 @@ func GetURL(u string, query map[string]string) string {
 	return u + "?" + p.Encode()
 }
 
-// AddBeforeRequest add global before request hook
-func AddBeforeRequest(fn BeforeRequestHook) {
-	globalBeforeRequestHooks = append(globalBeforeRequestHooks, fn)
-}
-
-// AddBeforeResponse add before response
-func AddBeforeResponse(fn BeforeResponseHook) {
-	globalBeforeResponseHooks = append(globalBeforeResponseHooks, fn)
-}
-
-// AddBeforeRequest add before request hook for the request
-func (d *Dusk) AddBeforeRequest(fn BeforeRequestHook) {
-	if d.BeforeRequestHooks == nil {
-		d.BeforeRequestHooks = make([]BeforeRequestHook, 0)
-	}
-	d.BeforeRequestHooks = append(d.BeforeRequestHooks, fn)
-}
-
-// AddBeforeResponse add before response hook for the request
-func (d *Dusk) AddBeforeResponse(fn BeforeResponseHook) {
-	if d.BeforeResponseHooks == nil {
-		d.BeforeResponseHooks = make([]BeforeResponseHook, 0)
-	}
-	d.BeforeResponseHooks = append(d.BeforeResponseHooks, fn)
+// Reset reset
+func (d *Dusk) Reset() {
+	d.Request = nil
+	d.Response = nil
+	d.Error = nil
+	d.M = nil
+	d.tl = nil
+	d.events = nil
 }
 
 // SetValue set value
@@ -123,47 +105,15 @@ func (d *Dusk) GetValue(k string) interface{} {
 	return d.M[k]
 }
 
-func (d *Dusk) runRequestHooks(req *http.Request) (err error) {
-	hooks := make([]BeforeRequestHook, 0)
-	if len(globalBeforeRequestHooks) != 0 {
-		hooks = append(hooks, globalBeforeRequestHooks...)
-	}
-	if len(d.BeforeRequestHooks) != 0 {
-		hooks = append(hooks, d.BeforeRequestHooks...)
-	}
-	for _, hook := range hooks {
-		err = hook(d, req)
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
-func (d *Dusk) runResponseHooks(resp *http.Response) (err error) {
-	hooks := make([]BeforeResponseHook, 0)
-	if len(globalBeforeResponseHooks) != 0 {
-		hooks = append(hooks, globalBeforeResponseHooks...)
-	}
-	if len(d.BeforeResponseHooks) != 0 {
-		hooks = append(hooks, d.BeforeResponseHooks...)
-	}
-	for _, hook := range hooks {
-		err = hook(d, resp)
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
 // Do do http request
 func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
+	defer func() {
+		if err != nil {
+			d.Emit(EventError)
+		}
+	}()
+	defer d.Emit(EventDone)
 	req := d.Request
-	err = d.runRequestHooks(req)
-	if err != nil {
-		return
-	}
 	c := d.Client
 	if c == nil {
 		c = defaultClient
@@ -175,18 +125,23 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		d.tl = tl
 	}
 	d.Emit(EventRequest)
+	// 如果在request event的处理函数中设置了error，出请求出错
+	if d.Error != nil {
+		err = d.Error
+		return
+	}
 	resp, err = c.Do(req)
 	if err != nil {
-		d.Emit(EventError)
+		d.Error = err
 		return
 	}
 	d.Response = resp
-	err = d.runResponseHooks(resp)
-	if err != nil {
-		d.Emit(EventError)
+	d.Emit(EventResponse)
+	// 如果在response event的处理函数中设置了error，出请求出错
+	if d.Error != nil {
+		err = d.Error
 		return
 	}
-	d.Emit(EventResponse)
 	defer resp.Body.Close()
 	body, err = ioutil.ReadAll(resp.Body)
 	return
@@ -196,12 +151,9 @@ func (d *Dusk) fillHeader(req *http.Request, header map[string]string) {
 	currentHeader := req.Header
 	for k, v := range header {
 		if len(currentHeader[k]) == 0 {
-			currentHeader[k] = []string{
-				v,
-			}
-		} else {
-			currentHeader[k] = append(currentHeader[k], v)
+			currentHeader[k] = make([]string, 0)
 		}
+		currentHeader[k] = append(currentHeader[k], v)
 	}
 }
 
@@ -351,7 +303,6 @@ func (d *Dusk) Emit(name string) {
 func New() *Dusk {
 	// 是否需要直接在初始化时就生成，还是动态生成？
 	return &Dusk{
-		// BeforeRequestHooks: make([]BeforeRequestHook, 0),
 		// M:                  make(map[string]interface{}),
 	}
 }
