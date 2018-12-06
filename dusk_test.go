@@ -420,6 +420,31 @@ func TestOnEvent(t *testing.T) {
 	})
 }
 
+func TestConvertError(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(500).
+		JSON(map[string]string{
+			"message": "error",
+		})
+	d := New()
+
+	d.On(EventResponse, func(d *Dusk) {
+		status := d.Response.Status
+		if status != "200" {
+			d.Error = errors.New("status is:" + status)
+		}
+	})
+	d.ConvertError = func(err error, _ *Dusk) error {
+		return errors.New(err.Error() + " covert")
+	}
+	_, _, err := d.Get("http://aslant.site/", nil)
+	if err.Error() != "status is:500 Internal Server Error covert" {
+		t.Fatalf("convert error fail")
+	}
+}
+
 func TestGetSetValue(t *testing.T) {
 	d := New()
 	key := "name"

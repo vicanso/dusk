@@ -52,8 +52,12 @@ type (
 		Request *http.Request
 		// Response http response
 		Response *http.Response
+		// Body response body
+		Body []byte
 		// Error error
 		Error error
+		// ConvertError convert error
+		ConvertError func(error, *Dusk) error
 		// Client http client
 		Client *http.Client
 		// URLPrefix the prefix of request url
@@ -108,6 +112,13 @@ func (d *Dusk) GetValue(k string) interface{} {
 // Do do http request
 func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 	defer func() {
+		if d.Error != nil && d.ConvertError != nil {
+			e := d.ConvertError(d.Error, d)
+			if e != nil {
+				d.Error = e
+			}
+		}
+		err = d.Error
 		if err != nil {
 			d.Emit(EventError)
 		}
@@ -127,23 +138,22 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 	d.Emit(EventRequest)
 	// 如果在request event的处理函数中设置了error，出请求出错
 	if d.Error != nil {
-		err = d.Error
 		return
 	}
 	resp, err = c.Do(req)
-	if err != nil {
-		d.Error = err
+	d.Error = err
+	if d.Error != nil {
 		return
 	}
 	d.Response = resp
-	d.Emit(EventResponse)
 	// 如果在response event的处理函数中设置了error，出请求出错
 	if d.Error != nil {
-		err = d.Error
 		return
 	}
 	defer resp.Body.Close()
 	body, err = ioutil.ReadAll(resp.Body)
+	d.Body = body
+	d.Emit(EventResponse)
 	return
 }
 
