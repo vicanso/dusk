@@ -119,6 +119,7 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 			}
 		}
 		err = d.Error
+		body = d.Body
 		if err != nil {
 			d.Emit(EventError)
 		}
@@ -136,6 +137,9 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		d.tl = tl
 	}
 	d.Emit(EventRequest)
+	// 此处的Request有可能会在 request event中被调整
+	req = d.Request
+
 	// 如果在request event的处理函数中设置了error，出请求出错
 	if d.Error != nil {
 		return
@@ -151,8 +155,8 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		return
 	}
 	defer resp.Body.Close()
-	body, err = ioutil.ReadAll(resp.Body)
-	d.Body = body
+	buf, err := ioutil.ReadAll(resp.Body)
+	d.Body = buf
 	d.Emit(EventResponse)
 	return
 }
