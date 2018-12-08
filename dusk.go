@@ -120,11 +120,11 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		}
 		err = d.Error
 		body = d.Body
+		d.Emit(EventDone)
 		if err != nil {
 			d.Emit(EventError)
 		}
 	}()
-	defer d.Emit(EventDone)
 	req := d.Request
 	c := d.Client
 	if c == nil {
