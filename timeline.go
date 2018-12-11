@@ -34,17 +34,17 @@ type (
 // Stats get the stats of time line
 func (tl *HTTPTimeline) Stats() (stats *HTTPTimelineStats) {
 	stats = &HTTPTimelineStats{}
-	if !tl.DNSStart.IsZero() {
+	if !tl.DNSStart.IsZero() && !tl.DNSDone.IsZero() {
 		stats.DNSLookup = tl.DNSDone.Sub(tl.DNSStart)
 	}
-	if !tl.ConnectStart.IsZero() {
+	if !tl.ConnectStart.IsZero() && !tl.ConnectDone.IsZero() {
 		stats.TCPConnection = tl.ConnectDone.Sub(tl.ConnectStart)
 	}
-	if !tl.TLSHandshakeStart.IsZero() {
+	if !tl.TLSHandshakeStart.IsZero() && !tl.TLSHandshakeDone.IsZero() {
 		stats.TLSHandshake = tl.TLSHandshakeDone.Sub(tl.TLSHandshakeStart)
 	}
 
-	if !tl.GotConnect.IsZero() {
+	if !tl.GotConnect.IsZero() && !tl.GotFirstResponseByte.IsZero() {
 		stats.ServerProcessing = tl.GotFirstResponseByte.Sub(tl.GotConnect)
 	}
 	if tl.Done.IsZero() {

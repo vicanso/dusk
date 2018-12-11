@@ -54,6 +54,8 @@ type (
 		Response *http.Response
 		// Body response body
 		Body []byte
+		// RequestBody request body
+		RequestBody []byte
 		// Error error
 		Error error
 		// ConvertError convert error
@@ -197,6 +199,7 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 			err = e
 			return
 		}
+		d.RequestBody = buf
 		r = bytes.NewReader(buf)
 	}
 	req, err = http.NewRequest(method, newURL, r)
