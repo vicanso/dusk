@@ -449,6 +449,9 @@ func TestGetSetValue(t *testing.T) {
 	d := New()
 	key := "name"
 	value := "tree.xie"
+	if d.GetValue(key) != nil {
+		t.Fatalf("get value should be nil before set")
+	}
 	d.SetValue(key, value)
 	v := d.GetValue(key).(string)
 	if v != value {
