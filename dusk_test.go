@@ -1,6 +1,7 @@
 package dusk
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -135,6 +136,20 @@ func TestPost(t *testing.T) {
 			t.Fatalf("post request fail, %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestNewRequest(t *testing.T) {
+	d := Dusk{}
+	data := bytes.NewReader([]byte(`{
+		"foo": "bar"
+	}`))
+	req, err := d.NewRequest("POST", "http://aslant.site/", nil, data, nil)
+	if err != nil {
+		t.Fatalf("new request fail, %v", err)
+	}
+	if req.Header.Get(HeaderContentType) != "" {
+		t.Fatalf("request content type should be nil")
+	}
 }
 
 func TestDel(t *testing.T) {
@@ -343,6 +358,33 @@ func TestOnEvent(t *testing.T) {
 		})
 
 		resp, body, err := d.Get("http://aslant.site/", nil)
+		if err != nil {
+			t.Fatalf("get request fail, %v", err)
+		}
+		if resp.StatusCode != 200 {
+			t.Fatalf("get request fail, %d", resp.StatusCode)
+		}
+
+		if len(body) == 0 {
+			t.Fatalf("get request body is empty")
+		}
+	})
+
+	t.Run("modify url on request event", func(t *testing.T) {
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+
+		d := New()
+		d.On(EventRequest, func(d *Dusk) {
+			// 填充请求的 host schema
+			d.Request.URL.Host = "aslant.site"
+			d.Request.URL.Scheme = "http"
+		})
+		resp, body, err := d.Get("/", nil)
 		if err != nil {
 			t.Fatalf("get request fail, %v", err)
 		}

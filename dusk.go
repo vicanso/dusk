@@ -25,6 +25,8 @@ var (
 const (
 	// MIMEApplicationJSON application json
 	MIMEApplicationJSON = "application/json"
+	// HeaderContentType content type
+	HeaderContentType = "Content-Type"
 
 	// EventRequest request event
 	EventRequest = "request"
@@ -142,7 +144,7 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 	// 此处的Request有可能会在 request event中被调整
 	req = d.Request
 
-	// 如果在request event的处理函数中设置了error，出请求出错
+	// 如果在request event 的处理函数中设置了error，出请求出错
 	if d.Error != nil {
 		return
 	}
@@ -152,7 +154,7 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		return
 	}
 	d.Response = resp
-	// 如果在response event的处理函数中设置了error，出请求出错
+	// 如果在response event 的处理函数中设置了error，出请求出错
 	if d.Error != nil {
 		return
 	}
@@ -184,7 +186,7 @@ func (d *Dusk) getURL(url string, query map[string]string) string {
 
 // setJsonContentType set json content type
 func (d *Dusk) setJSONContentType(req *http.Request) {
-	req.Header["Content-Type"] = []string{MIMEApplicationJSON}
+	req.Header[HeaderContentType] = []string{MIMEApplicationJSON}
 }
 
 // NewRequest new http request
@@ -192,22 +194,30 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 	// get new request url
 	newURL := d.getURL(url, query)
 	var r io.Reader
+	isJSON := false
 	// get send data reader
 	if data != nil {
-		buf, e := json.Marshal(data)
-		if e != nil {
-			err = e
-			return
+		v, ok := data.(io.Reader)
+		if ok {
+			r = v
+		} else {
+			// 如果非reader 序列化为json
+			buf, e := json.Marshal(data)
+			if e != nil {
+				err = e
+				return
+			}
+			d.RequestBody = buf
+			r = bytes.NewReader(buf)
+			isJSON = true
 		}
-		d.RequestBody = buf
-		r = bytes.NewReader(buf)
 	}
 	req, err = http.NewRequest(method, newURL, r)
 	if err != nil {
 		return
 	}
-	// set content type
-	if r != nil {
+	// set json content type
+	if isJSON {
 		d.setJSONContentType(req)
 	}
 	d.Request = req
@@ -296,7 +306,7 @@ func (d *Dusk) GetTimelineStats() *HTTPTimelineStats {
 	return d.tl.Stats()
 }
 
-// On add event linster function
+// On add event listen function
 func (d *Dusk) On(name string, ln Listener) {
 	if d.events == nil {
 		d.events = make([]*Event, 0)
