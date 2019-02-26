@@ -48,6 +48,8 @@ type (
 	}
 	// Dusk http request
 	Dusk struct {
+		// Timeout timeout for request
+		Timeout time.Duration
 		// EnableTimelineTrace enable the timeline trace
 		EnableTimelineTrace bool
 		// Request http request
@@ -72,8 +74,27 @@ type (
 		tl *HTTPTimeline
 		// events list
 		events []*Event
+		ctx    context.Context
 	}
 )
+
+// Reset reset
+func (d *Dusk) Reset() {
+	d.Timeout = 0
+	d.EnableTimelineTrace = false
+	d.Request = nil
+	d.Response = nil
+	d.Body = nil
+	d.RequestBody = nil
+	d.Error = nil
+	d.ConvertError = nil
+	d.Client = nil
+	d.URLPrefix = ""
+	d.M = nil
+	d.tl = nil
+	d.events = nil
+	d.ctx = nil
+}
 
 // GetURL get the url with query string
 func GetURL(u string, query map[string]string) string {
@@ -88,16 +109,6 @@ func GetURL(u string, query map[string]string) string {
 		return u + "&" + p.Encode()
 	}
 	return u + "?" + p.Encode()
-}
-
-// Reset reset
-func (d *Dusk) Reset() {
-	d.Request = nil
-	d.Response = nil
-	d.Error = nil
-	d.M = nil
-	d.tl = nil
-	d.events = nil
 }
 
 // SetValue set value
@@ -213,6 +224,20 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 		}
 	}
 	req, err = http.NewRequest(method, newURL, r)
+
+	// 如果有设置超时，则调整context
+	if d.Timeout != 0 {
+		currentCtx := d.ctx
+		if currentCtx == nil {
+			currentCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(currentCtx, d.Timeout)
+		d.ctx = ctx
+		defer cancel()
+	}
+	if d.ctx != nil {
+		req = req.WithContext(d.ctx)
+	}
 	if err != nil {
 		return
 	}
@@ -324,6 +349,16 @@ func (d *Dusk) Emit(name string) {
 			e.Listener(d)
 		}
 	}
+}
+
+// SetContext set context to dusk
+func (d *Dusk) SetContext(ctx context.Context) {
+	d.ctx = ctx
+}
+
+// GetContext get context of dusk
+func (d *Dusk) GetContext() context.Context {
+	return d.ctx
 }
 
 // New new a request

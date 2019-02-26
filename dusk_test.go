@@ -2,8 +2,10 @@ package dusk
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/h2non/gock"
 )
@@ -143,7 +145,12 @@ func TestNewRequest(t *testing.T) {
 	data := bytes.NewReader([]byte(`{
 		"foo": "bar"
 	}`))
+	d.Timeout = time.Second
 	req, err := d.NewRequest("POST", "http://aslant.site/", nil, data, nil)
+	_, ok := req.Context().Deadline()
+	if !ok {
+		t.Fatalf("set request timeout fail")
+	}
 	if err != nil {
 		t.Fatalf("new request fail, %v", err)
 	}
@@ -517,5 +524,15 @@ func TestReset(t *testing.T) {
 		d.Error != nil ||
 		d.M != nil {
 		t.Fatalf("reset fail")
+	}
+}
+
+func TestContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	d := New()
+	d.SetContext(ctx)
+	if d.GetContext() != ctx {
+		t.Fatalf("set context fail")
 	}
 }
