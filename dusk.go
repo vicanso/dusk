@@ -2,6 +2,7 @@ package dusk
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"io/ioutil"
@@ -36,6 +37,9 @@ const (
 	EventError = "error"
 	// EventDone done event
 	EventDone = "done"
+
+	gzipEncoding    = "gzip"
+	contentEncoding = "Content-Encoding"
 )
 
 type (
@@ -124,22 +128,9 @@ func (d *Dusk) GetValue(k string) interface{} {
 	return d.M[k]
 }
 
-// Do do http request
-func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
-	defer func() {
-		if d.Error != nil && d.ConvertError != nil {
-			e := d.ConvertError(d.Error, d)
-			if e != nil {
-				d.Error = e
-			}
-		}
-		err = d.Error
-		body = d.Body
-		d.Emit(EventDone)
-		if err != nil {
-			d.Emit(EventError)
-		}
-	}()
+func (d *Dusk) do() {
+	d.Emit(EventRequest)
+	// 此处的Request有可能会在 request event中被调整
 	req := d.Request
 	c := d.Client
 	if c == nil {
@@ -151,28 +142,57 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		d.Request = req
 		d.tl = tl
 	}
-	d.Emit(EventRequest)
-	// 此处的Request有可能会在 request event中被调整
-	req = d.Request
 
 	// 如果在request event 的处理函数中设置了error，出请求出错
 	if d.Error != nil {
 		return
 	}
-	resp, err = c.Do(req)
-	d.Error = err
+	var resp *http.Response
+	resp, d.Error = c.Do(req)
 	if d.Error != nil {
 		return
 	}
 	d.Response = resp
-	// 如果在response event 的处理函数中设置了error，出请求出错
+	defer resp.Body.Close()
+	var reader io.ReadCloser
+	switch resp.Header.Get(contentEncoding) {
+	case gzipEncoding:
+		reader, d.Error = gzip.NewReader(resp.Body)
+		if d.Error != nil {
+			return
+		}
+		resp.Header.Del(contentEncoding)
+	default:
+		reader = resp.Body
+	}
+
+	var buf []byte
+	buf, d.Error = ioutil.ReadAll(reader)
 	if d.Error != nil {
 		return
 	}
-	defer resp.Body.Close()
-	buf, err := ioutil.ReadAll(resp.Body)
+
 	d.Body = buf
 	d.Emit(EventResponse)
+	return
+}
+
+// Do do http request
+func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
+	d.do()
+	resp = d.Response
+	body = d.Body
+	if d.Error != nil {
+		if d.ConvertError != nil {
+			e := d.ConvertError(d.Error, d)
+			if e != nil {
+				d.Error = e
+			}
+		}
+		d.Emit(EventError)
+		err = d.Error
+	}
+	d.Emit(EventDone)
 	return
 }
 

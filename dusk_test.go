@@ -2,6 +2,7 @@ package dusk
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"testing"
@@ -156,6 +157,32 @@ func TestNewRequest(t *testing.T) {
 	}
 	if req.Header.Get(HeaderContentType) != "" {
 		t.Fatalf("request content type should be nil")
+	}
+}
+
+func TestGzipResponse(t *testing.T) {
+	resBody := []byte(`{"name":"tree.xie"}`)
+	var b bytes.Buffer
+	w := gzip.NewWriter(&b)
+	w.Write(resBody)
+	w.Close()
+
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(200).
+		JSON(b.Bytes()).
+		Header.Set(contentEncoding, gzipEncoding)
+
+	d := New()
+	resp, body, err := d.Get("http://aslant.site/", nil)
+	if err != nil {
+		t.Fatalf("get request fail, %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("get request fail, %d", resp.StatusCode)
+	}
+	if !bytes.Equal(resBody, body) {
+		t.Fatalf("response body is invalid")
 	}
 }
 
