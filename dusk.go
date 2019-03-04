@@ -138,7 +138,12 @@ func (d *Dusk) do() {
 	}
 	if d.EnableTimelineTrace {
 		trace, tl := NewClientTrace()
-		req = req.WithContext(httptrace.WithClientTrace(context.Background(), trace))
+		ctx := d.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		d.ctx = httptrace.WithClientTrace(ctx, trace)
+		req = req.WithContext(d.ctx)
 		d.Request = req
 		d.tl = tl
 	}
