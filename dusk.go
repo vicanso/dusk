@@ -253,7 +253,9 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 		}
 		ctx, cancel := context.WithTimeout(currentCtx, d.Timeout)
 		d.ctx = ctx
-		defer cancel()
+		d.On(EventDone, func(_ *Dusk) {
+			cancel()
+		})
 	}
 	if d.ctx != nil {
 		req = req.WithContext(d.ctx)

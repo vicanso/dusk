@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -532,6 +533,16 @@ func TestGetSetValue(t *testing.T) {
 	v := d.GetValue(key).(string)
 	if v != value {
 		t.Fatalf("get set value fail")
+	}
+}
+
+func TestTimeout(t *testing.T) {
+	d := New()
+	d.Timeout = time.Millisecond
+	_, _, err := d.Get("http://aslant.site/", nil)
+	ue, ok := err.(*url.Error)
+	if !ok || !ue.Timeout() {
+		t.Fatalf("time out fail")
 	}
 }
 
