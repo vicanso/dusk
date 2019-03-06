@@ -5,332 +5,245 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/h2non/gock"
 )
 
-func TestGetURL(t *testing.T) {
-	urlStr := "http://aslant.site/users/me?t=1&v=2"
-	str := GetURL("http://aslant.site/users/me", map[string]string{
-		"t": "1",
-		"v": "2",
-	})
-	if str != urlStr {
-		t.Fatalf("get url fail")
-	}
-	str = GetURL("http://aslant.site/users/me?t=1", map[string]string{
-		"v": "2",
-	})
-	if str != urlStr {
-		t.Fatalf("get url fail")
-	}
-}
-
-func TestGet(t *testing.T) {
-	defer gock.Off()
-	t.Run("normal get", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, body, err := d.Get("http://aslant.site/", nil)
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("get request fail, %d", resp.StatusCode)
-		}
-
-		if len(body) == 0 {
-			t.Fatalf("get request body is empty")
-		}
-	})
-
-	t.Run("url prefix", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-		d := New()
-		d.URLPrefix = "http://aslant.site"
-		resp, _, err := d.Get("/", nil)
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("get request fail, %d", resp.StatusCode)
-		}
-	})
-
-	t.Run("get with header", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			MatchHeader("Token", "abc").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-		d := New()
-		resp, _, err := d.GetWithHeader("http://aslant.site/", nil, map[string]string{
-			"Token": "abc",
-		})
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("get request fail, %d", resp.StatusCode)
-		}
-	})
-}
-
-func TestPost(t *testing.T) {
-	defer gock.Off()
-	t.Run("normal post", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Post("/").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.Post("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil)
-		if err != nil {
-			t.Fatalf("post request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("post request fail, %d", resp.StatusCode)
-		}
-	})
-
-	t.Run("post with header", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Post("/").
-			MatchHeader("Token", "abc").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.PostWithHeader("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil, map[string]string{
-			"Token": "abc",
-		})
-		if err != nil {
-			t.Fatalf("post request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("post request fail, %d", resp.StatusCode)
-		}
-	})
-}
-
-func TestNewRequest(t *testing.T) {
+func TestSetClient(t *testing.T) {
 	d := Dusk{}
-	data := bytes.NewReader([]byte(`{
-		"foo": "bar"
-	}`))
-	d.Timeout = time.Second
-	req, err := d.NewRequest("POST", "http://aslant.site/", nil, data, nil)
-	_, ok := req.Context().Deadline()
-	if !ok {
+	client := &http.Client{}
+	d.SetClient(client)
+	if d.client != client {
+		t.Fatalf("set client fail")
+	}
+}
+
+func TestSetGetValue(t *testing.T) {
+	d := &Dusk{}
+	d.SetValue("a", 1)
+	if d.GetValue("a").(int) != 1 {
+		t.Fatalf("set/get value fail")
+	}
+}
+
+func TestSetGetContext(t *testing.T) {
+	d := &Dusk{}
+	ctx := context.Background()
+	d.SetContext(ctx)
+	if d.ctx != ctx || d.GetContext() != ctx {
+		t.Fatalf("set/get context fail")
+	}
+}
+
+func TestHTTPGet(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(200).
+		JSON(map[string]string{
+			"name": "tree.xie",
+		})
+
+	d := Get("http://aslant.site/")
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("get request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("response of get request invalid")
+	}
+}
+
+func TestHTTPHead(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Head("/").
+		Reply(200)
+
+	d := Head("http://aslant.site/")
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("head request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		len(body) != 0 {
+		t.Fatalf("response of head request invalid")
+	}
+}
+
+func TestHTTPPut(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Put("/").
+		Reply(200)
+
+	d := Put("http://aslant.site/")
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("put request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		len(body) != 0 {
+		t.Fatalf("response of put request invalid")
+	}
+}
+
+func TestHTTPPatch(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Patch("/").
+		Reply(200)
+
+	d := Patch("http://aslant.site/")
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("patch request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		len(body) != 0 {
+		t.Fatalf("response of patch request invalid")
+	}
+}
+
+func TestHTTPDelete(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Delete("/").
+		Reply(200)
+
+	d := Delete("http://aslant.site/")
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("delete request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		len(body) != 0 {
+		t.Fatalf("response of delete request invalid")
+	}
+}
+
+func TestHTTPPost(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Post("/").
+		BodyString(`{"account":"tree.xie"}`).
+		MatchHeader("a", "1").
+		MatchParam("type", "2").
+		MatchParam("category", "3").
+		Reply(200).
+		JSON(map[string]string{
+			"name": "tree.xie",
+		})
+
+	d := Post("http://aslant.site/").
+		Send(map[string]string{
+			"account": "tree.xie",
+		}).
+		Set("a", "1").
+		Queries(map[string]string{
+			"type": "2",
+		}).
+		Query("category", "3")
+
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("post request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("response of post request invalid")
+	}
+}
+
+func TestTimeout(t *testing.T) {
+	d := Get("https://aslant.site/").
+		Timeout(time.Nanosecond)
+	_, _, err := d.Do()
+	ue, ok := err.(*url.Error)
+	if !ok || !ue.Timeout() {
 		t.Fatalf("set request timeout fail")
 	}
+}
+
+func TestEvent(t *testing.T) {
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(200).
+		JSON(map[string]string{
+			"name": "tree.xie",
+		})
+
+	requestURI := "http://aslant.site/?a=1&b=2"
+	requestEvent := false
+	responseEvent := false
+	doneEvent := false
+
+	d := Get(requestURI)
+	d.OnRequest(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		if req.URL.String() != requestURI {
+			t.Fatalf("request uri invalid")
+		}
+		requestEvent = true
+		return
+	})
+	d.OnResponse(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		responseEvent = true
+		return
+	})
+	d.OnDone(func(_ *Dusk) (err error) {
+		doneEvent = true
+		return
+	})
+
+	resp, body, err := d.Do()
 	if err != nil {
-		t.Fatalf("new request fail, %v", err)
+		t.Fatalf("get request fail, %v", err)
 	}
-	if req.Header.Get(HeaderContentType) != "" {
-		t.Fatalf("request content type should be nil")
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("response of get request invalid")
+	}
+	if !requestEvent ||
+		!responseEvent ||
+		!doneEvent {
+		t.Fatalf("not all event was emitted")
 	}
 }
 
-func TestGzipResponse(t *testing.T) {
-	resBody := []byte(`{"name":"tree.xie"}`)
+func TestResponseBodyGzip(t *testing.T) {
+	defer gock.Off()
 	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	w.Write(resBody)
+	w, _ := gzip.NewWriterLevel(&b, 1)
+	w.Write([]byte(`{"name":"tree.xie"}`))
 	w.Close()
 
 	gock.New("http://aslant.site").
 		Get("/").
 		Reply(200).
-		JSON(b.Bytes()).
-		Header.Set(contentEncoding, gzipEncoding)
+		SetHeader(HeaderContentEncoding, GzipEncoding).
+		Body(bytes.NewReader(b.Bytes()))
 
-	d := New()
-	resp, body, err := d.Get("http://aslant.site/", nil)
+	d := Get("http://aslant.site/")
+	resp, body, err := d.Do()
 	if err != nil {
 		t.Fatalf("get request fail, %v", err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("get request fail, %d", resp.StatusCode)
-	}
-	if !bytes.Equal(resBody, body) {
-		t.Fatalf("response body is invalid")
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("gzip response of get request invalid")
 	}
 }
 
-func TestDel(t *testing.T) {
-	defer gock.Off()
-	t.Run("normal del", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Delete("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.Del("http://aslant.site/", map[string]string{
-			"v": "1",
-		})
-		if err != nil {
-			t.Fatalf("del request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("del request fail, %d", resp.StatusCode)
-		}
-	})
-	t.Run("del with header", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Delete("/").
-			MatchHeader("Token", "abc").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.DelWithHeader("http://aslant.site/", map[string]string{
-			"v": "1",
-		}, map[string]string{
-			"Token": "abc",
-		})
-		if err != nil {
-			t.Fatalf("del request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("del request fail, %d", resp.StatusCode)
-		}
-	})
-}
-
-func TestPatch(t *testing.T) {
-	defer gock.Off()
-	t.Run("normal patch", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Patch("/").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.Patch("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil)
-		if err != nil {
-			t.Fatalf("patch request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("patch request fail, %d", resp.StatusCode)
-		}
-	})
-	t.Run("patch with header", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Patch("/").
-			MatchHeader("Token", "abc").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.PatchWithHeader("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil, map[string]string{
-			"Token": "abc",
-		})
-		if err != nil {
-			t.Fatalf("patch request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("patch request fail, %d", resp.StatusCode)
-		}
-	})
-}
-
-func TestPut(t *testing.T) {
-	defer gock.Off()
-	t.Run("normal put", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Put("/").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.Put("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil)
-		if err != nil {
-			t.Fatalf("put request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("put request fail, %d", resp.StatusCode)
-		}
-	})
-	t.Run("put with header", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Put("/").
-			MatchHeader("Token", "abc").
-			MatchType("json").
-			JSON(map[string]string{"foo": "bar"}).
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-
-		d := New()
-		resp, _, err := d.PutWithHeader("http://aslant.site/", map[string]string{
-			"foo": "bar",
-		}, nil, map[string]string{
-			"Token": "abc",
-		})
-		if err != nil {
-			t.Fatalf("put request fail, %v", err)
-		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("put request fail, %d", resp.StatusCode)
-		}
-	})
-}
-
-func TestEnableTimelineTrace(t *testing.T) {
+func TestEnableTrace(t *testing.T) {
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Get("/").
@@ -339,238 +252,155 @@ func TestEnableTimelineTrace(t *testing.T) {
 			"name": "tree.xie",
 		})
 
-	d := New()
-	d.EnableTimelineTrace = true
-	d.On(EventDone, func(d *Dusk) {
-		stats := d.GetTimelineStats()
-		if stats == nil || stats.Total.Nanoseconds() == 0 {
-			t.Fatalf("get timeline stats fail")
-		}
-	})
-	resp, body, err := d.Get("http://aslant.site/", nil)
+	d := Get("http://aslant.site/")
+	d.EnableTrace()
+	resp, body, err := d.Do()
 	if err != nil {
 		t.Fatalf("get request fail, %v", err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("get request fail, %d", resp.StatusCode)
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("response of get request invalid")
 	}
-
-	if len(body) == 0 {
-		t.Fatalf("get request body is empty")
+	if d.GetHTTPTrace() == nil {
+		t.Fatalf("enable trace fail")
 	}
 }
 
-func TestOnEvent(t *testing.T) {
+func TestEmitRequest(t *testing.T) {
 	defer gock.Off()
-	t.Run("event step", func(t *testing.T) {
 
+	t.Run("new request", func(t *testing.T) {
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
 			JSON(map[string]string{
 				"name": "tree.xie",
 			})
+		r := httptest.NewRequest("GET", "/users/me", nil)
+		d := Get("http://aslant.site/")
+		d.OnRequest(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+			newReq = r
+			return
+		})
+		// 不判断是否出错，只需要后面检查request 是否被替换
+		d.Do()
+		if d.Request != r {
+			t.Fatalf("convert new request fail")
+		}
+	})
 
-		d := New()
-		step := 0
-		d.On(EventRequest, func(_ *Dusk) {
-			step++
-			if step != 1 {
-				t.Fatalf("the request event should be step 1")
-			}
+	t.Run("return error", func(t *testing.T) {
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+		e := errors.New("abcd")
+		d := Get("http://aslant.site/")
+		d.OnRequest(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+			err = e
+			return
 		})
-		d.On(EventResponse, func(_ *Dusk) {
-			step++
-			if step != 2 {
-				t.Fatalf("the response event should be step 2")
-			}
-		})
-		d.On(EventDone, func(_ *Dusk) {
-			step++
-			if step != 3 {
-				t.Fatalf("the done event should be step 3")
-			}
-		})
+		_, _, err := d.Do()
+		if err != e {
+			t.Fatalf("on request event return error fail")
+		}
+	})
+}
 
-		resp, body, err := d.Get("http://aslant.site/", nil)
+func TestEmitResponse(t *testing.T) {
+	defer gock.Off()
+	t.Run("new response", func(t *testing.T) {
+		gock.New("http://aslant.site").
+			Get("/").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+		d := Get("http://aslant.site/")
+		d.OnResponse(func(_ *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+			newResp = &http.Response{
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(`{"name":"abcd"}`))),
+			}
+			return
+		})
+		resp, body, err := d.Do()
 		if err != nil {
 			t.Fatalf("get request fail, %v", err)
 		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("get request fail, %d", resp.StatusCode)
-		}
-
-		if len(body) == 0 {
-			t.Fatalf("get request body is empty")
+		if resp.StatusCode != 200 ||
+			strings.TrimSpace(string(body)) != `{"name":"abcd"}` {
+			t.Fatalf("response of get request invalid")
 		}
 	})
 
-	t.Run("modify url on request event", func(t *testing.T) {
+	t.Run("read body by custom", func(t *testing.T) {
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
 			JSON(map[string]string{
 				"name": "tree.xie",
 			})
-
-		d := New()
-		d.On(EventRequest, func(d *Dusk) {
-			// 填充请求的 host schema
-			d.Request.URL.Host = "aslant.site"
-			d.Request.URL.Scheme = "http"
+		d := Get("http://aslant.site/")
+		d.OnResponse(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+			d.Body = []byte(`{"name":"abcd"}`)
+			return
 		})
-		resp, body, err := d.Get("/", nil)
+		resp, body, err := d.Do()
 		if err != nil {
 			t.Fatalf("get request fail, %v", err)
 		}
-		if resp.StatusCode != 200 {
-			t.Fatalf("get request fail, %d", resp.StatusCode)
-		}
-
-		if len(body) == 0 {
-			t.Fatalf("get request body is empty")
+		if resp.StatusCode != 200 ||
+			strings.TrimSpace(string(body)) != `{"name":"abcd"}` {
+			t.Fatalf("response of get request invalid")
 		}
 	})
 
-	t.Run("error event", func(t *testing.T) {
-		d := New()
-		done := false
-		d.On(EventError, func(_ *Dusk) {
-			if d.Error != nil {
-				done = true
-			}
-		})
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err == nil || !done {
-			t.Fatalf("error event is not emitted")
-		}
-	})
-
-	t.Run("create an error on request event", func(t *testing.T) {
+	t.Run("return error", func(t *testing.T) {
+		e := errors.New("abcd")
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
 			JSON(map[string]string{
 				"name": "tree.xie",
 			})
-		customError := errors.New("abc")
-		d := New()
-		done := false
-		d.On(EventRequest, func(d *Dusk) {
-			d.Error = customError
+		d := Get("http://aslant.site/")
+		d.OnResponse(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+			err = e
+			return
 		})
-		d.On(EventError, func(_ *Dusk) {
-			done = true
-		})
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err != customError {
-			t.Fatalf("create custom error on event fail")
-		}
-		if !done {
-			t.Fatalf("miss error event")
-		}
-	})
-
-	t.Run("create an error on response event", func(t *testing.T) {
-		gock.New("http://aslant.site").
-			Get("/").
-			Reply(200).
-			JSON(map[string]string{
-				"name": "tree.xie",
-			})
-		customError := errors.New("abc")
-		d := New()
-		done := false
-		d.On(EventResponse, func(d *Dusk) {
-			d.Error = customError
-		})
-		d.On(EventError, func(_ *Dusk) {
-			done = true
-		})
-		_, _, err := d.Get("http://aslant.site/", nil)
-		if err != customError {
-			t.Fatalf("create custom error on event fail")
-		}
-		if !done {
-			t.Fatalf("miss error event")
+		_, _, err := d.Do()
+		if err != e {
+			t.Fatalf("on response event return error fail")
 		}
 	})
 }
 
-func TestConvertError(t *testing.T) {
-	defer gock.Off()
-	gock.New("http://aslant.site").
-		Get("/").
-		Reply(500).
-		JSON(map[string]string{
-			"message": "error",
-		})
-	d := New()
+func TestSetType(t *testing.T) {
+	d := Post("/users/me")
+	d.Type("json")
+	if d.header.Get(HeaderContentType) != MIMEApplicationJSON {
+		t.Fatalf("set content-type: json fail")
+	}
+	d.Type("form")
+	if d.header.Get(HeaderContentType) != MIMEApplicationFormUrlencoded {
+		t.Fatalf("set content-type: form fail")
+	}
+}
 
-	d.On(EventResponse, func(d *Dusk) {
-		status := d.Response.Status
-		if status != "200" {
-			d.Error = errors.New("status is:" + status)
-		}
+func TestEmitError(t *testing.T) {
+	e := errors.New("abcd")
+	d := Get("http://aslant.site/")
+	d.OnError(func(err error, _ *Dusk) (newErr error) {
+		newErr = e
+		return
 	})
-	d.ConvertError = func(err error, _ *Dusk) error {
-		return errors.New(err.Error() + " covert")
-	}
-	_, _, err := d.Get("http://aslant.site/", nil)
-	if err.Error() != "status is:500 Internal Server Error covert" {
-		t.Fatalf("convert error fail")
-	}
-}
-
-func TestGetSetValue(t *testing.T) {
-	d := New()
-	key := "name"
-	value := "tree.xie"
-	if d.GetValue(key) != nil {
-		t.Fatalf("get value should be nil before set")
-	}
-	d.SetValue(key, value)
-	v := d.GetValue(key).(string)
-	if v != value {
-		t.Fatalf("get set value fail")
-	}
-}
-
-func TestTimeout(t *testing.T) {
-	d := New()
-	d.Timeout = time.Millisecond
-	_, _, err := d.Get("http://aslant.site/", nil)
-	ue, ok := err.(*url.Error)
-	if !ok || !ue.Timeout() {
-		t.Fatalf("time out fail")
-	}
-}
-
-func TestReset(t *testing.T) {
-	defer gock.Off()
-	gock.New("http://aslant.site").
-		Get("/").
-		Reply(200).
-		JSON(map[string]string{
-			"name": "tree.xie",
-		})
-	d := New()
-	d.Get("http://aslant.site/", nil)
-	d.Reset()
-	if d.Request != nil ||
-		d.Response != nil ||
-		d.Error != nil ||
-		d.M != nil {
-		t.Fatalf("reset fail")
-	}
-}
-
-func TestContext(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	d := New()
-	d.SetContext(ctx)
-	if d.GetContext() != ctx {
-		t.Fatalf("set context fail")
+	d.Timeout(time.Nanosecond)
+	_, _, err := d.Do()
+	if err != e {
+		t.Fatalf("on error event return new error fail")
 	}
 }

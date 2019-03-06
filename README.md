@@ -7,25 +7,35 @@ http request client support interceptor.
 ## API
 
 ```go
-d := dusk.New()
-d.Client = &http.Client{
-  Timeout: 10 * time.Second,
-}
-d.ConvertError = func(err error, d *dusk.Dusk) error {
-  // 可以根据需要转换为自定义的error对象
-  newError := errors.New(err.Error())
-  return newError
-}
-d.EnableTimelineTrace = true
-d.On(dusk.EventResponse, func(d *dusk.Dusk) {
-  // 可以根据需要将调整d.Response d.Error
-  fmt.Println(d.Body)
+d := dusk.Get("https://aslant.site/")
+// http client 尽量使用公共的实例，可以提高连接复用
+d.SetClient(&http.Client{
+  Timeout: 3 * time.Second,
 })
-d.On(dusk.EventDone, func(d *dusk.Dusk) {
-  stats := d.GetTimelineStats()
-  fmt.Println(stats)
+d.EnableTrace()
+// 请求发出前触发此事件
+d.OnRequest(func(req *http.Request, d *dusk.Dusk) (newReq *http.Request, newErr error) {
+  // 如果需要可以生成新的请求，则赋值至 newReq
+  // 如果需要生成新的错误，则赋值至 newError，则请求出错返回
+  return
 })
-resp, body, err := d.Get("https://aslant.site/", nil)
+// 当请求有响应时触发此事件
+d.OnResponse(func(resp *http.Response, d *dusk.Dusk) (newResp *http.Response, newError error) {
+  // 如果需要返回新的响应，则赋值至 newResp
+  // 如果需要生成新的错误，则赋值至 newError，则请求出错返回
+  return
+})
+// 无论请求成功或失败都会触发此事件
+d.OnDone(func(d *dusk.Dusk) error {
+  // 可增加一些系统统计等处理
+  return nil
+})
+
+resp, body, err := d.Do()
+fmt.Println(err)
+fmt.Println(string(body))
+fmt.Println(resp)
+fmt.Println(d.GetHTTPTrace())
 ```
 
 ### Get
@@ -33,108 +43,33 @@ resp, body, err := d.Get("https://aslant.site/", nil)
 HTTP get request
 
 ```go
-d := dusk.New()
-resp, body, err := d.Get("https://aslant.site/", nil)
-```
-
-```go
-d := dusk.New()
-resp, body, err := d.Get("https://aslant.site/", map[string]string{
-  "t": time.Now().Format(time.RFC3339),
-})
-```
-
-### GetWithHeader
-
-HTTP get request with http header
-
-```go
-d := dusk.New()
-resp, body, err := d.GetWithHeader("https://aslant.site/", nil, nil)
-```
-
-```go
-d := dusk.New()
-resp, body, err := d.GetWithHeader("https://aslant.site/", map[string]string{
-  "t": time.Now().Format(time.RFC3339),
-}, map[string]string{
-  "X-Token": "abc",
-})
+resp, body, err := dusk.Get("https://www.baidu.com/").
+  // set http request header
+  Set("X-Request-ID", "1234").
+  // set http request query
+  Query("type", "vip").
+  Queries(map[string]string{
+    "site": "mobile",
+  }).
+  Timeout(3 * time.Second).
+  Do()
+fmt.Println(err)
+fmt.Println(string(body))
+fmt.Println(resp)
 ```
 
 ### Post
 
-HTTP post request
+HTTP Post request
 
 ```go
-d := dusk.New()
-resp, body, err := d.Post("https://aslant.site/users/login", map[string]string{
-  "account": "tree.xie",
-}, nil)
-```
-
-### PostWithHeader
-
-HTTP post request with http header
-
-```go
-d := dusk.New()
-resp, body, err := d.Post("https://aslant.site/users/login", map[string]string{
-  "account": "tree.xie",
-}, map[string]string{
-  "t": time.Now().Format(time.RFC3339),
-}, map[string]string{
-  "X-Token": "abc",
-})
-```
-
-### EnableTimelineTrace
-
-Enable http timeline trace
-
-```go
-d := dusk.New()
-d.EnableTimelineTrace = true
-d.On(dusk.EventDone, func(d *dusk.Dusk) {
-  buf, _ := json.Marshal(d.GetTimelineStats())
-  // {"dnsLookup":2380544,"tcpConnection":58811605,"tlsHandshake":353453805,"serverProcessing":56606236,"contentTransfer":1776865,"total":474806674}
-  fmt.Println(string(buf))
-})
-resp, body, err := d.Get("https://aslant.site/", nil)
-```
-
-### ConvertError
-
-Convert the error to custom's error struct
-
-```go
-type CustomError struct {
-	Message string
-	Code    int
-}
-func (ce *CustomError) Error() string {
-	return ce.Message
-}
-
-d := dusk.New()
-d.ConvertError = func(err error, d *dusk.Dusk) error {
-  ce := &CustomError{
-    Message: err.Error(),
-    Code:    -1,
-  }
-  return ce
-}
-resp, body, err := d.Get("https://aslant.site/", nil)
-```
-
-### Client
-
-Change the default client for dusk
-
-```go
-d := dusk.New()
-d.Client = &http.Client{
-  Timeout: 3 * time.Second,
-}
-resp, body, err := d.Get("https://aslant.site/", nil)
+resp, body, err := dusk.Post("https://www.baidu.com/").
+  Send(map[string]string{
+    "foo": "bar",
+  }).
+  Timeout(3 * time.Second).
+  Do()
+fmt.Println(err)
+fmt.Println(string(body))
+fmt.Println(resp)
 ```

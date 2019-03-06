@@ -1,9 +1,24 @@
+// Copyright 2019 tree xie
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package dusk
 
 import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -11,226 +26,277 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	jsoniter "github.com/json-iterator/go"
-)
-
-var (
-	// 设置默认10秒超时
-	defaultClient = &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	json = jsoniter.ConfigCompatibleWithStandardLibrary
 )
 
 const (
 	// MIMEApplicationJSON application json
 	MIMEApplicationJSON = "application/json"
+	// MIMEApplicationFormUrlencoded form url encoded
+	MIMEApplicationFormUrlencoded = "application/x-www-form-urlencoded"
 	// HeaderContentType content type
 	HeaderContentType = "Content-Type"
+	// HeaderContentEncoding  content encoding
+	HeaderContentEncoding = "Content-Encoding"
+	// GzipEncoding gzip encoding
+	GzipEncoding = "gzip"
 
-	// EventRequest request event
-	EventRequest = "request"
-	// EventResponse response event
-	EventResponse = "response"
-	// EventError error event
-	EventError = "error"
-	// EventDone done event
-	EventDone = "done"
-
-	gzipEncoding    = "gzip"
-	contentEncoding = "Content-Encoding"
+	jsonType = "json"
+	formType = "form"
 )
 
 type (
-	// Listener event listener
-	Listener func(*Dusk)
-	// Event event struct
-	Event struct {
-		Name     string
-		Listener Listener
-	}
-	// Dusk http request
+	// DoneListener done event listener
+	DoneListener func(*Dusk) error
+	// RequestListener request event listener
+	RequestListener func(*http.Request, *Dusk) (newReq *http.Request, newErr error)
+	// ResponseListener response event listener
+	ResponseListener func(*http.Response, *Dusk) (newResp *http.Response, newErr error)
+	// ErrorListener error event listener
+	ErrorListener func(error, *Dusk) (newErr error)
+
+	// Dusk http request client
 	Dusk struct {
-		// Timeout timeout for request
-		Timeout time.Duration
-		// EnableTimelineTrace enable the timeline trace
-		EnableTimelineTrace bool
 		// Request http request
 		Request *http.Request
 		// Response http response
 		Response *http.Response
-		// Body response body
+		// Body response's body
 		Body []byte
-		// RequestBody request body
-		RequestBody []byte
-		// Error error
-		Error error
-		// ConvertError convert error
-		ConvertError func(error, *Dusk) error
-		// Client http client
-		Client *http.Client
-		// URLPrefix the prefix of request url
-		URLPrefix string
-		// M data for dusk
-		M map[string]interface{}
-		// http timeline struct
-		tl *HTTPTimeline
-		// events list
-		events []*Event
-		ctx    context.Context
+
+		client         *http.Client
+		m              map[string]interface{}
+		header         http.Header
+		query          url.Values
+		data           interface{}
+		ctx            context.Context
+		doneEvents     []DoneListener
+		requestEvents  []RequestListener
+		responseEvents []ResponseListener
+		errorEvents    []ErrorListener
+		url            string
+		method         string
+		timeout        time.Duration
+		ht             *HTTPTrace
+		enabledTrace   bool
 	}
 )
 
-// Reset reset
-func (d *Dusk) Reset() {
-	d.Timeout = 0
-	d.EnableTimelineTrace = false
-	d.Request = nil
-	d.Response = nil
-	d.Body = nil
-	d.RequestBody = nil
-	d.Error = nil
-	d.ConvertError = nil
-	d.Client = nil
-	d.URLPrefix = ""
-	d.M = nil
-	d.tl = nil
-	d.events = nil
-	d.ctx = nil
-}
-
-// GetURL get the url with query string
-func GetURL(u string, query map[string]string) string {
-	if query == nil {
-		return u
-	}
-	p := url.Values{}
-	for k, v := range query {
-		p.Set(k, v)
-	}
-	if strings.Contains(u, "?") {
-		return u + "&" + p.Encode()
-	}
-	return u + "?" + p.Encode()
+// SetClient set client for dusk
+func (d *Dusk) SetClient(client *http.Client) *Dusk {
+	d.client = client
+	return d
 }
 
 // SetValue set value
-func (d *Dusk) SetValue(k string, v interface{}) {
-	if d.M == nil {
-		d.M = make(map[string]interface{})
+func (d *Dusk) SetValue(k string, v interface{}) *Dusk {
+	if d.m == nil {
+		d.m = make(map[string]interface{})
 	}
-	d.M[k] = v
+	d.m[k] = v
+	return d
 }
 
 // GetValue get value
 func (d *Dusk) GetValue(k string) interface{} {
-	return d.M[k]
+	return d.m[k]
 }
 
-func (d *Dusk) do() {
-	d.Emit(EventRequest)
-	// 此处的Request有可能会在 request event中被调整
-	req := d.Request
-	c := d.Client
-	if c == nil {
-		c = defaultClient
+// Set set http request header
+func (d *Dusk) Set(key, value string) *Dusk {
+	if d.header == nil {
+		d.header = make(http.Header)
 	}
-	if d.EnableTimelineTrace {
-		trace, tl := NewClientTrace()
-		ctx := d.ctx
-		if ctx == nil {
-			ctx = context.Background()
+	d.header.Set(key, value)
+	return d
+}
+
+// Type set the content type of request
+func (d *Dusk) Type(contentType string) *Dusk {
+	switch contentType {
+	case jsonType:
+		contentType = MIMEApplicationJSON
+	case formType:
+		contentType = MIMEApplicationFormUrlencoded
+	}
+	d.Set(HeaderContentType, contentType)
+	return d
+}
+
+// Queries set http request query
+func (d *Dusk) Queries(query map[string]string) *Dusk {
+	for k, v := range query {
+		d.Query(k, v)
+	}
+	return d
+}
+
+// Query set http request query
+func (d *Dusk) Query(key, value string) *Dusk {
+	if d.query == nil {
+		d.query = make(url.Values)
+	}
+	d.query.Set(key, value)
+	return d
+}
+
+// Send set the send data
+func (d *Dusk) Send(data interface{}) *Dusk {
+	d.data = data
+	return d
+}
+
+// SetContext set context to dusk
+func (d *Dusk) SetContext(ctx context.Context) *Dusk {
+	d.ctx = ctx
+	return d
+}
+
+// GetContext get context of dusk
+func (d *Dusk) GetContext() context.Context {
+	return d.ctx
+}
+
+// Timeout set timeout for request
+func (d *Dusk) Timeout(timeout time.Duration) *Dusk {
+	d.timeout = timeout
+	return d
+}
+
+// OnDone on done event
+func (d *Dusk) OnDone(ln DoneListener) *Dusk {
+	if d.doneEvents == nil {
+		d.doneEvents = make([]DoneListener, 0)
+	}
+	d.doneEvents = append(d.doneEvents, ln)
+	return d
+}
+
+// EmitDone emit done event
+func (d *Dusk) EmitDone() error {
+	for _, ln := range d.doneEvents {
+		err := ln(d)
+		if err != nil {
+			return err
 		}
-		d.ctx = httptrace.WithClientTrace(ctx, trace)
-		req = req.WithContext(d.ctx)
-		d.Request = req
-		d.tl = tl
 	}
+	return nil
+}
 
-	// 如果在request event 的处理函数中设置了error，出请求出错
-	if d.Error != nil {
-		return
+// OnRequest on request event
+func (d *Dusk) OnRequest(ln RequestListener) *Dusk {
+	if d.requestEvents == nil {
+		d.requestEvents = make([]RequestListener, 0)
 	}
-	var resp *http.Response
-	resp, d.Error = c.Do(req)
-	if d.Error != nil {
-		return
-	}
-	d.Response = resp
-	defer resp.Body.Close()
-	var reader io.ReadCloser
-	switch resp.Header.Get(contentEncoding) {
-	case gzipEncoding:
-		reader, d.Error = gzip.NewReader(resp.Body)
-		if d.Error != nil {
-			return
+	d.requestEvents = append(d.requestEvents, ln)
+	return d
+}
+
+// EmitRequest emit request event
+func (d *Dusk) EmitRequest() error {
+	for _, ln := range d.requestEvents {
+		newReq, err := ln(d.Request, d)
+		if err != nil {
+			return err
 		}
-		resp.Header.Del(contentEncoding)
-	default:
-		reader = resp.Body
-	}
-
-	var buf []byte
-	buf, d.Error = ioutil.ReadAll(reader)
-	if d.Error != nil {
-		return
-	}
-
-	d.Body = buf
-	d.Emit(EventResponse)
-	return
-}
-
-// Do do http request
-func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
-	d.do()
-	resp = d.Response
-	body = d.Body
-	if d.Error != nil {
-		if d.ConvertError != nil {
-			e := d.ConvertError(d.Error, d)
-			if e != nil {
-				d.Error = e
-			}
+		if newReq != nil {
+			d.Request = newReq
 		}
-		d.Emit(EventError)
-		err = d.Error
 	}
-	d.Emit(EventDone)
-	return
+	return nil
 }
 
-func (d *Dusk) fillHeader(req *http.Request, header map[string]string) {
-	currentHeader := req.Header
-	for k, v := range header {
-		if len(currentHeader[k]) == 0 {
-			currentHeader[k] = make([]string, 0)
+// OnResponse on response event
+func (d *Dusk) OnResponse(ln ResponseListener) *Dusk {
+	if d.responseEvents == nil {
+		d.responseEvents = make([]ResponseListener, 0)
+	}
+	d.responseEvents = append(d.responseEvents, ln)
+	return d
+}
+
+// EmitResponse emit response event
+func (d *Dusk) EmitResponse() error {
+	for _, ln := range d.responseEvents {
+		newResp, err := ln(d.Response, d)
+		if err != nil {
+			return err
 		}
-		currentHeader[k] = append(currentHeader[k], v)
+		if newResp != nil {
+			d.Response = newResp
+		}
+	}
+	return nil
+}
+
+// OnError on error event
+func (d *Dusk) OnError(ln ErrorListener) *Dusk {
+	if d.errorEvents == nil {
+		d.errorEvents = make([]ErrorListener, 0)
+	}
+	d.errorEvents = append(d.errorEvents, ln)
+	return d
+}
+
+// EmitError emit error event
+func (d *Dusk) EmitError(currentErr error) error {
+	for _, ln := range d.errorEvents {
+		err := ln(currentErr, d)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func newDusk(method, url string) *Dusk {
+	return &Dusk{
+		url:    url,
+		method: method,
 	}
 }
 
-// get request url
-func (d *Dusk) getURL(url string, query map[string]string) string {
-	newURL := GetURL(url, query)
-	if d.URLPrefix != "" {
-		newURL = d.URLPrefix + newURL
+// Get http get request
+func Get(url string) *Dusk {
+	return newDusk(http.MethodGet, url)
+}
+
+// Head http head request
+func Head(url string) *Dusk {
+	return newDusk(http.MethodHead, url)
+}
+
+// Post http post request
+func Post(url string) *Dusk {
+	return newDusk(http.MethodPost, url)
+}
+
+// Put http put request
+func Put(url string) *Dusk {
+	return newDusk(http.MethodPut, url)
+}
+
+// Patch http patch request
+func Patch(url string) *Dusk {
+	return newDusk(http.MethodPatch, url)
+}
+
+// Delete http delete request
+func Delete(url string) *Dusk {
+	return newDusk(http.MethodDelete, url)
+}
+
+func (d *Dusk) newReqest() (req *http.Request, err error) {
+	url := d.url
+	if d.query != nil {
+		qs := d.query.Encode()
+		if strings.Contains(url, "?") {
+			url += ("&" + qs)
+		} else {
+			url += ("?" + qs)
+		}
 	}
-	return newURL
-}
-
-// setJsonContentType set json content type
-func (d *Dusk) setJSONContentType(req *http.Request) {
-	req.Header[HeaderContentType] = []string{MIMEApplicationJSON}
-}
-
-// NewRequest new http request
-func (d *Dusk) NewRequest(method, url string, query map[string]string, data interface{}, header map[string]string) (req *http.Request, err error) {
-	// get new request url
-	newURL := d.getURL(url, query)
+	data := d.data
 	var r io.Reader
-	isJSON := false
 	// get send data reader
 	if data != nil {
 		v, ok := data.(io.Reader)
@@ -243,23 +309,28 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 				err = e
 				return
 			}
-			d.RequestBody = buf
 			r = bytes.NewReader(buf)
-			isJSON = true
+		}
+		// 如果没有设置 content-type 默认为 json
+		if d.header == nil || d.header.Get(HeaderContentType) == "" {
+			d.Type(MIMEApplicationJSON)
 		}
 	}
-	req, err = http.NewRequest(method, newURL, r)
-
+	req, err = http.NewRequest(d.method, url, r)
+	if err != nil {
+		return
+	}
 	// 如果有设置超时，则调整context
-	if d.Timeout != 0 {
+	if d.timeout != 0 {
 		currentCtx := d.ctx
 		if currentCtx == nil {
 			currentCtx = context.Background()
 		}
-		ctx, cancel := context.WithTimeout(currentCtx, d.Timeout)
+		ctx, cancel := context.WithTimeout(currentCtx, d.timeout)
 		d.ctx = ctx
-		d.On(EventDone, func(_ *Dusk) {
+		d.OnDone(func(_ *Dusk) error {
 			cancel()
+			return nil
 		})
 	}
 	if d.ctx != nil {
@@ -268,130 +339,116 @@ func (d *Dusk) NewRequest(method, url string, query map[string]string, data inte
 	if err != nil {
 		return
 	}
-	// set json content type
-	if isJSON {
-		d.setJSONContentType(req)
-	}
-	d.Request = req
-
-	if header != nil {
-		d.fillHeader(req, header)
+	for k, values := range d.header {
+		for _, v := range values {
+			req.Header.Add(k, v)
+		}
 	}
 	return
 }
 
-// Get http get request
-func (d *Dusk) Get(url string, query map[string]string) (resp *http.Response, body []byte, err error) {
-	return d.GetWithHeader(url, query, nil)
+// EnableTrace enable trace
+func (d *Dusk) EnableTrace() *Dusk {
+	d.enabledTrace = true
+	return d
 }
 
-// GetWithHeader http get request with headers
-func (d *Dusk) GetWithHeader(url string, query, header map[string]string) (resp *http.Response, body []byte, err error) {
-	_, err = d.NewRequest(http.MethodGet, url, query, nil, header)
+// GetHTTPTrace get http trace
+func (d *Dusk) GetHTTPTrace() *HTTPTrace {
+	return d.ht
+}
+
+func (d *Dusk) do() (err error) {
+	req := d.Request
+	c := d.client
+	if c == nil {
+		c = http.DefaultClient
+	}
+	// 如果启用trace ，则添加相应的 context
+	if d.enabledTrace {
+		trace, ht := NewClientTrace()
+		ctx := d.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		d.ctx = httptrace.WithClientTrace(ctx, trace)
+		req = req.WithContext(d.ctx)
+		d.Request = req
+		d.ht = ht
+	}
+
+	resp, err := c.Do(req)
 	if err != nil {
 		return
 	}
-	return d.Do()
-}
-
-// Post the http post request
-func (d *Dusk) Post(url string, data interface{}, query map[string]string) (resp *http.Response, body []byte, err error) {
-	return d.PostWithHeader(url, data, query, nil)
-}
-
-// PostWithHeader post request with header
-func (d *Dusk) PostWithHeader(url string, data interface{}, query, header map[string]string) (resp *http.Response, body []byte, err error) {
-	_, err = d.NewRequest(http.MethodPost, url, query, data, header)
+	d.Response = resp
+	// 触发 response 事件
+	err = d.EmitResponse()
 	if err != nil {
 		return
 	}
-	return d.Do()
-}
+	// 因此在 response 事件中有可能会生成新的 response
+	resp = d.Response
+	// 如果已获取到数据，则返回
+	if d.Body != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var reader io.ReadCloser
+	switch resp.Header.Get(HeaderContentEncoding) {
+	case GzipEncoding:
+		reader, err = gzip.NewReader(resp.Body)
+		if err != nil {
+			return
+		}
+		resp.Header.Del(HeaderContentEncoding)
+	default:
+		reader = resp.Body
+	}
 
-// Patch http patch request
-func (d *Dusk) Patch(url string, data interface{}, query map[string]string) (resp *http.Response, body []byte, err error) {
-	return d.PatchWithHeader(url, data, query, nil)
-}
-
-// PatchWithHeader patch with header
-func (d *Dusk) PatchWithHeader(url string, data interface{}, query, header map[string]string) (resp *http.Response, body []byte, err error) {
-	_, err = d.NewRequest(http.MethodPatch, url, query, data, header)
+	var buf []byte
+	buf, err = ioutil.ReadAll(reader)
 	if err != nil {
 		return
 	}
-	return d.Do()
+
+	d.Body = buf
+	return
 }
 
-// Put http put request
-func (d *Dusk) Put(url string, data interface{}, query map[string]string) (resp *http.Response, body []byte, err error) {
-	return d.PutWithHeader(url, data, query, nil)
-}
-
-// PutWithHeader put with header
-func (d *Dusk) PutWithHeader(url string, data interface{}, query, header map[string]string) (resp *http.Response, body []byte, err error) {
-	_, err = d.NewRequest(http.MethodPut, url, query, data, header)
-	if err != nil {
-		return
-	}
-	return d.Do()
-}
-
-// Del del request
-func (d *Dusk) Del(url string, query map[string]string) (resp *http.Response, body []byte, err error) {
-	return d.DelWithHeader(url, query, nil)
-}
-
-// DelWithHeader delrequest with header
-func (d *Dusk) DelWithHeader(url string, query, header map[string]string) (resp *http.Response, body []byte, err error) {
-	_, err = d.NewRequest(http.MethodDelete, url, query, nil, header)
-	if err != nil {
-		return
-	}
-	return d.Do()
-}
-
-// GetTimelineStats get the timeline stats
-func (d *Dusk) GetTimelineStats() *HTTPTimelineStats {
-	if d.tl == nil {
-		return nil
-	}
-	return d.tl.Stats()
-}
-
-// On add event listen function
-func (d *Dusk) On(name string, ln Listener) {
-	if d.events == nil {
-		d.events = make([]*Event, 0)
-	}
-	d.events = append(d.events, &Event{
-		Name:     name,
-		Listener: ln,
-	})
-}
-
-// Emit emit event
-func (d *Dusk) Emit(name string) {
-	for _, e := range d.events {
-		if e.Name == name {
-			e.Listener(d)
+// Do do http request
+func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
+	done := func() {
+		if err != nil {
+			newErr := d.EmitError(err)
+			if newErr != nil {
+				err = newErr
+			}
+		}
+		e := d.EmitDone()
+		if e != nil {
+			err = e
 		}
 	}
-}
 
-// SetContext set context to dusk
-func (d *Dusk) SetContext(ctx context.Context) {
-	d.ctx = ctx
-}
-
-// GetContext get context of dusk
-func (d *Dusk) GetContext() context.Context {
-	return d.ctx
-}
-
-// New new a request
-func New() *Dusk {
-	// 是否需要直接在初始化时就生成，还是动态生成？
-	return &Dusk{
-		// M:                  make(map[string]interface{}),
+	req, err := d.newReqest()
+	if err != nil {
+		done()
+		return
 	}
+	d.Request = req
+	err = d.EmitRequest()
+	if err != nil {
+		done()
+		return
+	}
+	err = d.do()
+	if err != nil {
+		done()
+		return
+	}
+	resp = d.Response
+	body = d.Body
+	done()
+	return
 }
