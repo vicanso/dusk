@@ -16,7 +16,6 @@ package dusk
 
 import (
 	"crypto/tls"
-	"net"
 	"net/http/httptrace"
 	"time"
 )
@@ -34,7 +33,7 @@ type (
 	// HTTPTrace http trace
 	HTTPTrace struct {
 		Host           string        `json:"host,omitempty"`
-		Addrs          []net.IPAddr  `json:"addrs,omitempty"`
+		Addrs          []string      `json:"addrs,omitempty"`
 		Network        string        `json:"network,omitempty"`
 		Addr           string        `json:"addr,omitempty"`
 		Reused         bool          `json:"reused,omitempty"`
@@ -73,7 +72,7 @@ func init() {
 		tls.VersionTLS10: "tls1.0",
 		tls.VersionTLS11: "tls1.1",
 		tls.VersionTLS12: "tls1.2",
-		tls.VersionTLS13: "tls1.3",
+		versionTLS13:     "tls1.3",
 	}
 	cipherSuites = map[uint16]string{
 		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305:    "ECDHE_RSA_WITH_CHACHA20_POLY1305",
@@ -154,7 +153,10 @@ func NewClientTrace() (trace *httptrace.ClientTrace, ht *HTTPTrace) {
 			ht.DNSStart = time.Now()
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
-			ht.Addrs = info.Addrs
+			ht.Addrs = make([]string, len(info.Addrs))
+			for index, addr := range info.Addrs {
+				ht.Addrs[index] = addr.String()
+			}
 			ht.DNSDone = time.Now()
 		},
 		ConnectStart: func(network, addr string) {
