@@ -26,6 +26,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/golang/snappy"
 )
 
 const (
@@ -37,8 +39,12 @@ const (
 	HeaderContentType = "Content-Type"
 	// HeaderContentEncoding  content encoding
 	HeaderContentEncoding = "Content-Encoding"
+	// HeaderAcceptEncoding accept encoding
+	HeaderAcceptEncoding = "Accept-Encoding"
 	// GzipEncoding gzip encoding
 	GzipEncoding = "gzip"
+	// SnappyEncoding snappy encoding
+	SnappyEncoding = "snappy"
 
 	jsonType = "json"
 	formType = "form"
@@ -80,6 +86,50 @@ type (
 		enabledTrace   bool
 	}
 )
+
+// Gunzip gunzip response
+func Gunzip(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+	if resp.Header.Get(HeaderContentEncoding) != GzipEncoding {
+		return
+	}
+	r, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		newErr = err
+		return
+	}
+	resp.Header.Del(HeaderContentEncoding)
+	defer r.Close()
+	defer resp.Body.Close()
+	buf, err := ioutil.ReadAll(r)
+	if err != nil {
+		newErr = err
+		return
+	}
+	d.Body = buf
+	return
+}
+
+// SnappyDecode decode snappy response
+func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+	if resp.Header.Get(HeaderContentEncoding) != SnappyEncoding {
+		return
+	}
+	resp.Header.Del(HeaderContentEncoding)
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		newErr = err
+		return
+	}
+	var dst []byte
+	buf, err := snappy.Decode(dst, data)
+	if err != nil {
+		newErr = err
+		return
+	}
+	d.Body = buf
+	return
+}
 
 // SetClient set client for dusk
 func (d *Dusk) SetClient(client *http.Client) *Dusk {
@@ -358,6 +408,34 @@ func (d *Dusk) GetHTTPTrace() *HTTPTrace {
 	return d.ht
 }
 
+func (d *Dusk) addAcceptEncoding(encoding string) {
+	d.OnRequest(func(req *http.Request, _ *Dusk) (newReq *http.Request, newErr error) {
+		header := req.Header
+		accept := header.Get(HeaderAcceptEncoding)
+		if accept == "" {
+			accept = encoding
+		} else {
+			accept += (", " + encoding)
+		}
+		header.Set(HeaderAcceptEncoding, accept)
+		return
+	})
+}
+
+// Gzip add gunzip response
+func (d *Dusk) Gzip() *Dusk {
+	d.addAcceptEncoding(GzipEncoding)
+	d.OnResponse(Gunzip)
+	return d
+}
+
+// Snappy add snappy decode response
+func (d *Dusk) Snappy() *Dusk {
+	d.addAcceptEncoding(SnappyEncoding)
+	d.OnResponse(SnappyDecode)
+	return d
+}
+
 func (d *Dusk) do() (err error) {
 	req := d.Request
 	c := d.client
@@ -367,6 +445,9 @@ func (d *Dusk) do() (err error) {
 	// 如果启用trace ，则添加相应的 context
 	if d.enabledTrace {
 		trace, ht := NewClientTrace()
+		defer func() {
+			ht.Done = time.Now()
+		}()
 		ctx := d.ctx
 		if ctx == nil {
 			ctx = context.Background()
@@ -376,7 +457,7 @@ func (d *Dusk) do() (err error) {
 		d.Request = req
 		d.ht = ht
 	}
-
+	// d.OnResponse(decompress)
 	resp, err := c.Do(req)
 	if err != nil {
 		return
@@ -394,20 +475,9 @@ func (d *Dusk) do() (err error) {
 		return
 	}
 	defer resp.Body.Close()
-	var reader io.ReadCloser
-	switch resp.Header.Get(HeaderContentEncoding) {
-	case GzipEncoding:
-		reader, err = gzip.NewReader(resp.Body)
-		if err != nil {
-			return
-		}
-		resp.Header.Del(HeaderContentEncoding)
-	default:
-		reader = resp.Body
-	}
 
 	var buf []byte
-	buf, err = ioutil.ReadAll(reader)
+	buf, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}

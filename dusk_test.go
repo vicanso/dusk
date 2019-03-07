@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/snappy"
 	"github.com/h2non/gock"
 )
 
@@ -228,11 +229,12 @@ func TestResponseBodyGzip(t *testing.T) {
 
 	gock.New("http://aslant.site").
 		Get("/").
+		MatchHeader(HeaderAcceptEncoding, GzipEncoding).
 		Reply(200).
 		SetHeader(HeaderContentEncoding, GzipEncoding).
 		Body(bytes.NewReader(b.Bytes()))
 
-	d := Get("http://aslant.site/")
+	d := Get("http://aslant.site/").Gzip()
 	resp, body, err := d.Do()
 	if err != nil {
 		t.Fatalf("get request fail, %v", err)
@@ -240,6 +242,31 @@ func TestResponseBodyGzip(t *testing.T) {
 	if resp.StatusCode != 200 ||
 		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
 		t.Fatalf("gzip response of get request invalid")
+	}
+}
+
+func TestResponseBodySnappy(t *testing.T) {
+	defer gock.Off()
+	var dst []byte
+	buf := snappy.Encode(dst, []byte(`{"name":"tree.xie"}`))
+
+	gock.New("http://aslant.site").
+		Get("/").
+		MatchHeader(HeaderAcceptEncoding, GzipEncoding+", "+SnappyEncoding).
+		Reply(200).
+		SetHeader(HeaderContentEncoding, SnappyEncoding).
+		Body(bytes.NewReader(buf))
+
+	d := Get("http://aslant.site/").
+		Gzip().
+		Snappy()
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("get request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		t.Fatalf("snappy response of get request invalid")
 	}
 }
 
@@ -404,3 +431,12 @@ func TestEmitError(t *testing.T) {
 		t.Fatalf("on error event return new error fail")
 	}
 }
+
+// func TestTest(t *testing.T) {
+// 	d := Get("http://store.gf.com.cn/product/F_005769")
+// 	resp, body, err := d.Do()
+// 	fmt.Println(d.Request.Header)
+// 	fmt.Println(resp)
+// 	fmt.Println(len(body))
+// 	fmt.Println(err)
+// }
