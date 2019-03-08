@@ -51,6 +51,15 @@ const (
 	formType = "form"
 )
 
+const (
+	// EventTypeNone none event type
+	EventTypeNone = iota
+	// EventTypeBefore before event
+	EventTypeBefore
+	// EventTypeAfter after event
+	EventTypeAfter
+)
+
 type (
 	// DoneListener done event listener
 	DoneListener func(*Dusk) error
@@ -69,6 +78,8 @@ type (
 		Response *http.Response
 		// Body response's body
 		Body []byte
+		// Err request error
+		Err error
 
 		client         *http.Client
 		m              map[string]interface{}
@@ -77,14 +88,24 @@ type (
 		data           interface{}
 		ctx            context.Context
 		doneEvents     []DoneListener
-		requestEvents  []RequestListener
-		responseEvents []ResponseListener
+		requestEvents  []*RequestEvent
+		responseEvents []*ResponseEvent
 		errorEvents    []ErrorListener
 		url            string
 		method         string
 		timeout        time.Duration
 		ht             *HTTPTrace
 		enabledTrace   bool
+	}
+	// RequestEvent request event
+	RequestEvent struct {
+		ln RequestListener
+		t  int
+	}
+	// ResponseEvent response event
+	ResponseEvent struct {
+		ln ResponseListener
+		t  int
 	}
 )
 
@@ -213,19 +234,34 @@ func (d *Dusk) EmitDone() error {
 	return nil
 }
 
-// OnRequest on request event
-func (d *Dusk) OnRequest(ln RequestListener) *Dusk {
+func (d *Dusk) addRequestListener(ln RequestListener, t int) *Dusk {
 	if d.requestEvents == nil {
-		d.requestEvents = make([]RequestListener, 0)
+		d.requestEvents = make([]*RequestEvent, 0)
 	}
-	d.requestEvents = append(d.requestEvents, ln)
+	d.requestEvents = append(d.requestEvents, &RequestEvent{
+		t:  t,
+		ln: ln,
+	})
 	return d
 }
 
+// OnRequest on request event
+func (d *Dusk) OnRequest(ln RequestListener) *Dusk {
+	return d.addRequestListener(ln, EventTypeBefore)
+}
+
+// OnRequestSuccess on request success event
+func (d *Dusk) OnRequestSuccess(ln RequestListener) *Dusk {
+	return d.addRequestListener(ln, EventTypeAfter)
+}
+
 // EmitRequest emit request event
-func (d *Dusk) EmitRequest() error {
-	for _, ln := range d.requestEvents {
-		newReq, err := ln(d.Request, d)
+func (d *Dusk) EmitRequest(t int) error {
+	for _, e := range d.requestEvents {
+		if e.t != t {
+			continue
+		}
+		newReq, err := e.ln(d.Request, d)
 		if err != nil {
 			return err
 		}
@@ -236,19 +272,34 @@ func (d *Dusk) EmitRequest() error {
 	return nil
 }
 
-// OnResponse on response event
-func (d *Dusk) OnResponse(ln ResponseListener) *Dusk {
+func (d *Dusk) addResponseListener(ln ResponseListener, t int) *Dusk {
 	if d.responseEvents == nil {
-		d.responseEvents = make([]ResponseListener, 0)
+		d.responseEvents = make([]*ResponseEvent, 0)
 	}
-	d.responseEvents = append(d.responseEvents, ln)
+	d.responseEvents = append(d.responseEvents, &ResponseEvent{
+		t:  t,
+		ln: ln,
+	})
 	return d
 }
 
+// OnResponse on response event
+func (d *Dusk) OnResponse(ln ResponseListener) *Dusk {
+	return d.addResponseListener(ln, EventTypeBefore)
+}
+
+// OnResponseSuccess on response success event
+func (d *Dusk) OnResponseSuccess(ln ResponseListener) *Dusk {
+	return d.addResponseListener(ln, EventTypeAfter)
+}
+
 // EmitResponse emit response event
-func (d *Dusk) EmitResponse() error {
-	for _, ln := range d.responseEvents {
-		newResp, err := ln(d.Response, d)
+func (d *Dusk) EmitResponse(t int) error {
+	for _, e := range d.responseEvents {
+		if e.t != t {
+			continue
+		}
+		newResp, err := e.ln(d.Response, d)
 		if err != nil {
 			return err
 		}
@@ -432,14 +483,21 @@ func (d *Dusk) do() (err error) {
 		d.Request = req
 		d.ht = ht
 	}
-	// d.OnResponse(decompress)
+	err = d.EmitRequest(EventTypeBefore)
+	if err != nil {
+		return
+	}
 	resp, err := c.Do(req)
+	if err != nil {
+		return
+	}
+	err = d.EmitRequest(EventTypeAfter)
 	if err != nil {
 		return
 	}
 	d.Response = resp
 	// 触发 response 事件
-	err = d.EmitResponse()
+	err = d.EmitResponse(EventTypeBefore)
 	if err != nil {
 		return
 	}
@@ -456,8 +514,13 @@ func (d *Dusk) do() (err error) {
 	if err != nil {
 		return
 	}
-
 	d.Body = buf
+	// 触发 response 事件
+	err = d.EmitResponse(EventTypeAfter)
+	if err != nil {
+		return
+	}
+
 	return
 }
 
@@ -474,6 +537,7 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		if e != nil {
 			err = e
 		}
+		d.Err = err
 	}
 
 	req, err := d.newReqest()
@@ -482,11 +546,6 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		return
 	}
 	d.Request = req
-	err = d.EmitRequest()
-	if err != nil {
-		done()
-		return
-	}
 	err = d.do()
 	if err != nil {
 		done()

@@ -184,8 +184,10 @@ func TestEvent(t *testing.T) {
 		})
 
 	requestURI := "http://aslant.site/?a=1&b=2"
-	requestEvent := false
-	responseEvent := false
+	requestEventBefore := false
+	requestEventSuccess := false
+	responseEventBefore := false
+	responseEventSuccess := false
 	doneEvent := false
 
 	d := Get(requestURI)
@@ -193,13 +195,27 @@ func TestEvent(t *testing.T) {
 		if req.URL.String() != requestURI {
 			t.Fatalf("request uri invalid")
 		}
-		requestEvent = true
+		requestEventBefore = true
+		return
+	})
+
+	d.OnRequestSuccess(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		if requestEventBefore {
+			requestEventSuccess = true
+		}
 		return
 	})
 	d.OnResponse(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-		responseEvent = true
+		responseEventBefore = true
 		return
 	})
+	d.OnResponseSuccess(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		if responseEventBefore {
+			responseEventSuccess = true
+		}
+		return
+	})
+
 	d.OnDone(func(_ *Dusk) (err error) {
 		doneEvent = true
 		return
@@ -213,8 +229,10 @@ func TestEvent(t *testing.T) {
 		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
 		t.Fatalf("response of get request invalid")
 	}
-	if !requestEvent ||
-		!responseEvent ||
+	if !requestEventBefore ||
+		!requestEventSuccess ||
+		!responseEventBefore ||
+		!responseEventSuccess ||
 		!doneEvent {
 		t.Fatalf("not all event was emitted")
 	}
@@ -407,12 +425,3 @@ func TestEmitError(t *testing.T) {
 		t.Fatalf("on error event return new error fail")
 	}
 }
-
-// func TestTest(t *testing.T) {
-// 	d := Get("http://store.gf.com.cn/product/F_005769")
-// 	resp, body, err := d.Do()
-// 	fmt.Println(d.Request.Header)
-// 	fmt.Println(resp)
-// 	fmt.Println(len(body))
-// 	fmt.Println(err)
-// }
