@@ -16,7 +16,6 @@ package dusk
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -37,8 +36,10 @@ const (
 	MIMEApplicationFormUrlencoded = "application/x-www-form-urlencoded"
 	// HeaderContentType content type
 	HeaderContentType = "Content-Type"
-	// HeaderContentEncoding  content encoding
+	// HeaderContentEncoding content encoding
 	HeaderContentEncoding = "Content-Encoding"
+	// HeaderContentLength content length
+	HeaderContentLength = "Content-Length"
 	// HeaderAcceptEncoding accept encoding
 	HeaderAcceptEncoding = "Accept-Encoding"
 	// GzipEncoding gzip encoding
@@ -87,34 +88,14 @@ type (
 	}
 )
 
-// Gunzip gunzip response
-func Gunzip(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
-	if resp.Header.Get(HeaderContentEncoding) != GzipEncoding {
-		return
-	}
-	r, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		newErr = err
-		return
-	}
-	resp.Header.Del(HeaderContentEncoding)
-	defer r.Close()
-	defer resp.Body.Close()
-	buf, err := ioutil.ReadAll(r)
-	if err != nil {
-		newErr = err
-		return
-	}
-	d.Body = buf
-	return
-}
-
 // SnappyDecode decode snappy response
 func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
 	if resp.Header.Get(HeaderContentEncoding) != SnappyEncoding {
 		return
 	}
 	resp.Header.Del(HeaderContentEncoding)
+	resp.Header.Del(HeaderContentLength)
+
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -409,24 +390,18 @@ func (d *Dusk) GetHTTPTrace() *HTTPTrace {
 }
 
 func (d *Dusk) addAcceptEncoding(encoding string) {
-	d.OnRequest(func(req *http.Request, _ *Dusk) (newReq *http.Request, newErr error) {
-		header := req.Header
-		accept := header.Get(HeaderAcceptEncoding)
-		if accept == "" {
-			accept = encoding
-		} else {
-			accept += (", " + encoding)
-		}
-		header.Set(HeaderAcceptEncoding, accept)
-		return
-	})
-}
-
-// Gzip add gunzip response
-func (d *Dusk) Gzip() *Dusk {
-	d.addAcceptEncoding(GzipEncoding)
-	d.OnResponse(Gunzip)
-	return d
+	accept := ""
+	header := d.header
+	if header != nil {
+		accept = header.Get(HeaderAcceptEncoding)
+	}
+	// gzip is support by default
+	if accept == "" {
+		accept = GzipEncoding
+	}
+	accept += (", " + encoding)
+	d.Set(HeaderAcceptEncoding, accept)
+	return
 }
 
 // Snappy add snappy decode response

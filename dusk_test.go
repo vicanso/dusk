@@ -2,13 +2,13 @@ package dusk
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -220,31 +220,6 @@ func TestEvent(t *testing.T) {
 	}
 }
 
-func TestResponseBodyGzip(t *testing.T) {
-	defer gock.Off()
-	var b bytes.Buffer
-	w, _ := gzip.NewWriterLevel(&b, 1)
-	w.Write([]byte(`{"name":"tree.xie"}`))
-	w.Close()
-
-	gock.New("http://aslant.site").
-		Get("/").
-		MatchHeader(HeaderAcceptEncoding, GzipEncoding).
-		Reply(200).
-		SetHeader(HeaderContentEncoding, GzipEncoding).
-		Body(bytes.NewReader(b.Bytes()))
-
-	d := Get("http://aslant.site/").Gzip()
-	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
-		t.Fatalf("gzip response of get request invalid")
-	}
-}
-
 func TestResponseBodySnappy(t *testing.T) {
 	defer gock.Off()
 	var dst []byte
@@ -255,17 +230,18 @@ func TestResponseBodySnappy(t *testing.T) {
 		MatchHeader(HeaderAcceptEncoding, GzipEncoding+", "+SnappyEncoding).
 		Reply(200).
 		SetHeader(HeaderContentEncoding, SnappyEncoding).
+		SetHeader(HeaderContentLength, strconv.Itoa(len(buf))).
 		Body(bytes.NewReader(buf))
 
 	d := Get("http://aslant.site/").
-		Gzip().
 		Snappy()
 	resp, body, err := d.Do()
 	if err != nil {
 		t.Fatalf("get request fail, %v", err)
 	}
 	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
+		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` ||
+		resp.Header.Get(HeaderContentLength) != "" {
 		t.Fatalf("snappy response of get request invalid")
 	}
 }
