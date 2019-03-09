@@ -21,7 +21,7 @@ func TestSetClient(t *testing.T) {
 	d := Dusk{}
 	client := &http.Client{}
 	d.SetClient(client)
-	if d.client != client {
+	if d.GetClient() != client {
 		t.Fatalf("set client fail")
 	}
 }

@@ -139,6 +139,11 @@ func (d *Dusk) SetClient(client *http.Client) *Dusk {
 	return d
 }
 
+// GetClient get client of dusk
+func (d *Dusk) GetClient() *http.Client {
+	return d.client
+}
+
 // SetValue set value
 func (d *Dusk) SetValue(k string, v interface{}) *Dusk {
 	if d.m == nil {
