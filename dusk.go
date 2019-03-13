@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dsnet/compress/brotli"
 	"github.com/golang/snappy"
 )
 
@@ -46,6 +47,8 @@ const (
 	GzipEncoding = "gzip"
 	// SnappyEncoding snappy encoding
 	SnappyEncoding = "snappy"
+	// BrEncoding br encoding
+	BrEncoding = "br"
 
 	jsonType = "json"
 	formType = "form"
@@ -61,6 +64,8 @@ const (
 )
 
 type (
+	// Decoder compression decoder
+	Decoder func(*http.Response) ([]byte, error)
 	// DoneListener done event listener
 	DoneListener func(*Dusk) error
 	// RequestListener request event listener
@@ -109,28 +114,64 @@ type (
 	}
 )
 
-// SnappyDecode decode snappy response
-func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
-	if resp.Header.Get(HeaderContentEncoding) != SnappyEncoding {
-		return
+func getClient(d *Dusk) *http.Client {
+	c := d.client
+	if c == nil {
+		c = http.DefaultClient
 	}
-	resp.Header.Del(HeaderContentEncoding)
-	resp.Header.Del(HeaderContentLength)
+	return c
+}
 
+func snappyDecoder(resp *http.Response) (buf []byte, err error) {
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		newErr = err
 		return
 	}
 	var dst []byte
-	buf, err := snappy.Decode(dst, data)
+	buf, err = snappy.Decode(dst, data)
+	if err != nil {
+		return
+	}
+	return
+}
+
+// SnappyDecode decode snappy response
+func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+	return decode(resp, d, SnappyEncoding, snappyDecoder)
+}
+
+func decode(resp *http.Response, d *Dusk, encoding string, decoder Decoder) (newResp *http.Response, newErr error) {
+	if resp.Header.Get(HeaderContentEncoding) != encoding {
+		return
+	}
+
+	resp.Uncompressed = true
+	resp.Header.Del(HeaderContentEncoding)
+	resp.Header.Del(HeaderContentLength)
+
+	buf, err := decoder(resp)
 	if err != nil {
 		newErr = err
 		return
 	}
 	d.Body = buf
 	return
+}
+
+func brDecoder(resp *http.Response) (buf []byte, err error) {
+	defer resp.Body.Close()
+	r, err := brotli.NewReader(resp.Body, new(brotli.ReaderConfig))
+	if err != nil {
+		return
+	}
+	buf, err = ioutil.ReadAll(r)
+	return
+}
+
+// BrDecode brotli decode
+func BrDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+	return decode(resp, d, BrEncoding, brDecoder)
 }
 
 // SetClient set client for dusk
@@ -462,23 +503,43 @@ func (d *Dusk) addAcceptEncoding(encoding string) {
 
 // Snappy add snappy decode response
 func (d *Dusk) Snappy() *Dusk {
+	if d.isDisableCompression() {
+		return d
+	}
 	d.addAcceptEncoding(SnappyEncoding)
 	d.OnResponse(SnappyDecode)
 	return d
 }
 
+// Br add brotli decode response
+func (d *Dusk) Br() *Dusk {
+	if d.isDisableCompression() {
+		return d
+	}
+	d.addAcceptEncoding(BrEncoding)
+	d.OnResponse(BrDecode)
+	return d
+}
+
+func (d *Dusk) isDisableCompression() bool {
+	c := getClient(d)
+	if c.Transport != nil {
+		if t, ok := c.Transport.(*http.Transport); ok {
+			if t.DisableCompression {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (d *Dusk) do() (err error) {
 	req := d.Request
-	c := d.client
-	if c == nil {
-		c = http.DefaultClient
-	}
+	c := getClient(d)
 	// 如果启用trace ，则添加相应的 context
 	if d.enabledTrace {
 		trace, ht := NewClientTrace()
-		defer func() {
-			ht.Done = time.Now()
-		}()
+		defer ht.Finish()
 		ctx := d.ctx
 		if ctx == nil {
 			ctx = context.Background()

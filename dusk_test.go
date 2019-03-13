@@ -3,6 +3,7 @@ package dusk
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -166,7 +167,8 @@ func TestHTTPPost(t *testing.T) {
 
 func TestTimeout(t *testing.T) {
 	d := Get("https://aslant.site/").
-		Timeout(time.Nanosecond)
+		EnableTrace().
+		Timeout(time.Millisecond)
 	_, _, err := d.Do()
 	ue, ok := err.(*url.Error)
 	if !ok || !ue.Timeout() {
@@ -261,6 +263,36 @@ func TestResponseBodySnappy(t *testing.T) {
 		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` ||
 		resp.Header.Get(HeaderContentLength) != "" {
 		t.Fatalf("snappy response of get request invalid")
+	}
+}
+
+func TestResponseBodyBrotli(t *testing.T) {
+	// abcd的br压缩
+	brBase64 := "iwGAYWJjZAM="
+
+	defer gock.Off()
+	buf, err := base64.StdEncoding.DecodeString(brBase64)
+	if err != nil {
+		t.Fatalf("decode base64 fail, %v", err)
+	}
+	gock.New("http://aslant.site").
+		Get("/").
+		MatchHeader(HeaderAcceptEncoding, GzipEncoding+", "+BrEncoding).
+		Reply(200).
+		SetHeader(HeaderContentEncoding, BrEncoding).
+		SetHeader(HeaderContentLength, strconv.Itoa(len(buf))).
+		Body(bytes.NewReader(buf))
+
+	d := Get("http://aslant.site/").
+		Br()
+	resp, body, err := d.Do()
+	if err != nil {
+		t.Fatalf("get request fail, %v", err)
+	}
+	if resp.StatusCode != 200 ||
+		strings.TrimSpace(string(body)) != "abcd" ||
+		resp.Header.Get(HeaderContentLength) != "" {
+		t.Fatalf("br response of get request invalid")
 	}
 }
 
@@ -423,5 +455,20 @@ func TestEmitError(t *testing.T) {
 	_, _, err := d.Do()
 	if err != e {
 		t.Fatalf("on error event return new error fail")
+	}
+}
+
+func TestIsDisableCompression(t *testing.T) {
+	d := new(Dusk)
+	if d.isDisableCompression() {
+		t.Fatalf("should not disable compression")
+	}
+	d.SetClient(&http.Client{
+		Transport: &http.Transport{
+			DisableCompression: true,
+		},
+	})
+	if !d.isDisableCompression() {
+		t.Fatalf("should disable compression")
 	}
 }

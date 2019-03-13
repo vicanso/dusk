@@ -2,12 +2,12 @@
 
 [![Build Status](https://img.shields.io/travis/vicanso/dusk.svg?label=linux+build)](https://travis-ci.org/vicanso/dusk)
 
-http request client support interceptor.
+Http request client supports interceptors, such as `OnRequest`, `OnRequestSuccess`, `OnResponse` and so on. It supports `br` and `snappy` content encoding.
 
 ## API
 
 ```go
-d := dusk.Get("https://aslant.site/")
+d := dusk.Get("https://aslant.site/").Br()
 // http client 尽量使用公共的实例，可以提高连接复用
 d.SetClient(&http.Client{
   Timeout: 3 * time.Second,

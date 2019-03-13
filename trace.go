@@ -17,6 +17,7 @@ package dusk
 import (
 	"crypto/tls"
 	"net/http/httptrace"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,8 @@ type (
 	}
 	// HTTPTrace http trace
 	HTTPTrace struct {
+		// 因为timeout的设置有可能导致 trace 读写并存，因此需要锁
+		sync.RWMutex
 		Host           string        `json:"host,omitempty"`
 		Addrs          []string      `json:"addrs,omitempty"`
 		Network        string        `json:"network,omitempty"`
@@ -116,9 +119,18 @@ func convertCipherSuite(cipherSuite uint16) string {
 	return v
 }
 
+// Finish http trace finish
+func (ht *HTTPTrace) Finish() {
+	ht.Lock()
+	defer ht.Unlock()
+	ht.Done = time.Now()
+}
+
 // Stats get the stats of time line
 func (ht *HTTPTrace) Stats() (stats *HTTPTimelineStats) {
 	stats = &HTTPTimelineStats{}
+	ht.RLock()
+	defer ht.RUnlock()
 	if !ht.DNSStart.IsZero() && !ht.DNSDone.IsZero() {
 		stats.DNSLookup = ht.DNSDone.Sub(ht.DNSStart)
 	}
@@ -149,10 +161,14 @@ func NewClientTrace() (trace *httptrace.ClientTrace, ht *HTTPTrace) {
 	}
 	trace = &httptrace.ClientTrace{
 		DNSStart: func(info httptrace.DNSStartInfo) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.Host = info.Host
 			ht.DNSStart = time.Now()
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.Addrs = make([]string, len(info.Addrs))
 			for index, addr := range info.Addrs {
 				ht.Addrs[index] = addr.String()
@@ -160,14 +176,20 @@ func NewClientTrace() (trace *httptrace.ClientTrace, ht *HTTPTrace) {
 			ht.DNSDone = time.Now()
 		},
 		ConnectStart: func(network, addr string) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.Network = network
 			ht.Addr = addr
 			ht.ConnectStart = time.Now()
 		},
 		ConnectDone: func(_, _ string, _ error) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.ConnectDone = time.Now()
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.Reused = info.Reused
 			ht.WasIdle = info.WasIdle
 			ht.IdleTime = info.IdleTime
@@ -175,12 +197,18 @@ func NewClientTrace() (trace *httptrace.ClientTrace, ht *HTTPTrace) {
 			ht.GotConnect = time.Now()
 		},
 		GotFirstResponseByte: func() {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.GotFirstResponseByte = time.Now()
 		},
 		TLSHandshakeStart: func() {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.TLSHandshakeStart = time.Now()
 		},
 		TLSHandshakeDone: func(info tls.ConnectionState, _ error) {
+			ht.Lock()
+			defer ht.Unlock()
 			ht.TLSVersion = convertTLSVersion(info.Version)
 			ht.TLSResume = info.DidResume
 			ht.TLSCipherSuite = convertCipherSuite(info.CipherSuite)
