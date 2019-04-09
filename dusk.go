@@ -89,6 +89,7 @@ type (
 		client         *http.Client
 		m              map[string]interface{}
 		header         http.Header
+		params         map[string]string
 		query          url.Values
 		data           interface{}
 		ctx            context.Context
@@ -234,6 +235,15 @@ func (d *Dusk) Query(key, value string) *Dusk {
 		d.query = make(url.Values)
 	}
 	d.query.Set(key, value)
+	return d
+}
+
+// Param set http request url param
+func (d *Dusk) Param(key, value string) *Dusk {
+	if d.params == nil {
+		d.params = make(map[string]string)
+	}
+	d.params[key] = value
 	return d
 }
 
@@ -415,6 +425,9 @@ func Delete(url string) *Dusk {
 
 func (d *Dusk) newReqest() (req *http.Request, err error) {
 	url := d.url
+	for key, value := range d.params {
+		url = strings.ReplaceAll(url, ":"+key, value)
+	}
 	if d.query != nil {
 		qs := d.query.Encode()
 		if strings.Contains(url, "?") {

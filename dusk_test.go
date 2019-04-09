@@ -135,7 +135,7 @@ func TestHTTPDelete(t *testing.T) {
 func TestHTTPPost(t *testing.T) {
 	defer gock.Off()
 	gock.New("http://aslant.site").
-		Post("/").
+		Post("/123").
 		BodyString(`{"account":"tree.xie"}`).
 		MatchHeader("a", "1").
 		MatchParam("type", "2").
@@ -145,7 +145,8 @@ func TestHTTPPost(t *testing.T) {
 			"name": "tree.xie",
 		})
 
-	d := Post("http://aslant.site/").
+	d := Post("http://aslant.site/:id").
+		Param("id", "123").
 		Send(map[string]string{
 			"account": "tree.xie",
 		}).
