@@ -473,3 +473,14 @@ func TestIsDisableCompression(t *testing.T) {
 		t.Fatalf("should disable compression")
 	}
 }
+
+func TestGetAttr(t *testing.T) {
+	d := Get("/:id")
+	if d.GetMethod() != "GET" {
+		t.Fatalf("get method fail")
+	}
+
+	if d.GetPath() != "/:id" {
+		t.Fatalf("get path fail")
+	}
+}

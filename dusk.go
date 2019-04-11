@@ -98,6 +98,7 @@ type (
 		responseEvents []*ResponseEvent
 		errorEvents    []ErrorListener
 		url            string
+		path           string
 		method         string
 		timeout        time.Duration
 		ht             *HTTPTrace
@@ -386,9 +387,15 @@ func (d *Dusk) EmitError(currentErr error) error {
 	return nil
 }
 
-func newDusk(method, url string) *Dusk {
+func newDusk(method, requestURL string) *Dusk {
+	info, _ := url.Parse(requestURL)
+	path := ""
+	if info != nil {
+		path = info.Path
+	}
 	return &Dusk{
-		url:    url,
+		url:    requestURL,
+		path:   path,
 		method: method,
 	}
 }
@@ -423,19 +430,8 @@ func Delete(url string) *Dusk {
 	return newDusk(http.MethodDelete, url)
 }
 
-func (d *Dusk) newReqest() (req *http.Request, err error) {
-	url := d.url
-	for key, value := range d.params {
-		url = strings.ReplaceAll(url, ":"+key, value)
-	}
-	if d.query != nil {
-		qs := d.query.Encode()
-		if strings.Contains(url, "?") {
-			url += ("&" + qs)
-		} else {
-			url += ("?" + qs)
-		}
-	}
+func (d *Dusk) newRequest() (req *http.Request, err error) {
+	url := d.GetURL()
 	data := d.data
 	var r io.Reader
 	// get send data reader
@@ -619,7 +615,7 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 		d.Err = err
 	}
 
-	req, err := d.newReqest()
+	req, err := d.newRequest()
 	if err != nil {
 		done()
 		return
@@ -634,4 +630,31 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 	body = d.Body
 	done()
 	return
+}
+
+// GetMethod get request method
+func (d *Dusk) GetMethod() string {
+	return d.method
+}
+
+// GetURL get request url
+func (d *Dusk) GetURL() string {
+	url := d.url
+	for key, value := range d.params {
+		url = strings.ReplaceAll(url, ":"+key, value)
+	}
+	if d.query != nil {
+		qs := d.query.Encode()
+		if strings.Contains(url, "?") {
+			url += ("&" + qs)
+		} else {
+			url += ("?" + qs)
+		}
+	}
+	return url
+}
+
+// GetPath get path of request
+func (d *Dusk) GetPath() string {
+	return d.path
 }
