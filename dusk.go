@@ -641,7 +641,7 @@ func (d *Dusk) GetMethod() string {
 func (d *Dusk) GetURL() string {
 	url := d.url
 	for key, value := range d.params {
-		url = strings.ReplaceAll(url, ":"+key, value)
+		url = strings.Replace(url, ":"+key, value, -1)
 	}
 	if d.query != nil {
 		qs := d.query.Encode()
