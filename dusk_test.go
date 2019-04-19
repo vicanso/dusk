@@ -15,36 +15,34 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/h2non/gock"
+	"github.com/stretchr/testify/assert"
+	gock "gopkg.in/h2non/gock.v1"
 )
 
 func TestSetClient(t *testing.T) {
+
 	d := Dusk{}
 	client := &http.Client{}
 	d.SetClient(client)
-	if d.GetClient() != client {
-		t.Fatalf("set client fail")
-	}
+	assert.Equal(t, d.GetClient(), client)
 }
 
 func TestSetGetValue(t *testing.T) {
 	d := &Dusk{}
 	d.SetValue("a", 1)
-	if d.GetValue("a").(int) != 1 {
-		t.Fatalf("set/get value fail")
-	}
+	assert.Equal(t, d.GetValue("a").(int), 1)
 }
 
 func TestSetGetContext(t *testing.T) {
 	d := &Dusk{}
 	ctx := context.Background()
 	d.SetContext(ctx)
-	if d.ctx != ctx || d.GetContext() != ctx {
-		t.Fatalf("set/get context fail")
-	}
+	assert.Equal(t, d.ctx, ctx)
+	assert.Equal(t, d.GetContext(), ctx)
 }
 
 func TestHTTPGet(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Get("/").
@@ -55,16 +53,13 @@ func TestHTTPGet(t *testing.T) {
 
 	d := Get("http://aslant.site/")
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
-		t.Fatalf("response of get request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
 }
 
 func TestHTTPHead(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Head("/").
@@ -72,16 +67,13 @@ func TestHTTPHead(t *testing.T) {
 
 	d := Head("http://aslant.site/")
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("head request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		len(body) != 0 {
-		t.Fatalf("response of head request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(len(body), 0)
 }
 
 func TestHTTPPut(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Put("/").
@@ -89,16 +81,13 @@ func TestHTTPPut(t *testing.T) {
 
 	d := Put("http://aslant.site/")
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("put request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		len(body) != 0 {
-		t.Fatalf("response of put request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(len(body), 0)
 }
 
 func TestHTTPPatch(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Patch("/").
@@ -106,16 +95,13 @@ func TestHTTPPatch(t *testing.T) {
 
 	d := Patch("http://aslant.site/")
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("patch request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		len(body) != 0 {
-		t.Fatalf("response of patch request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(len(body), 0)
 }
 
 func TestHTTPDelete(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Delete("/").
@@ -123,61 +109,83 @@ func TestHTTPDelete(t *testing.T) {
 
 	d := Delete("http://aslant.site/")
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("delete request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		len(body) != 0 {
-		t.Fatalf("response of delete request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(len(body), 0)
 }
 
 func TestHTTPPost(t *testing.T) {
-	defer gock.Off()
-	gock.New("http://aslant.site").
-		Post("/123").
-		BodyString(`{"account":"tree.xie"}`).
-		MatchHeader("a", "1").
-		MatchParam("type", "2").
-		MatchParam("category", "3").
-		Reply(200).
-		JSON(map[string]string{
-			"name": "tree.xie",
-		})
+	t.Run("post json", func(t *testing.T) {
+		assert := assert.New(t)
+		defer gock.Off()
+		gock.New("http://aslant.site").
+			Post("/123").
+			BodyString(`{"account":"tree.xie"}`).
+			MatchHeader("a", "1").
+			MatchHeader("Content-Type", "application/json").
+			MatchParam("type", "2").
+			MatchParam("category", "3").
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
 
-	d := Post("http://aslant.site/:id").
-		Param("id", "123").
-		Send(map[string]string{
-			"account": "tree.xie",
-		}).
-		Set("a", "1").
-		Queries(map[string]string{
-			"type": "2",
-		}).
-		Query("category", "3")
+		d := Post("http://aslant.site/:id").
+			Param("id", "123").
+			Send(map[string]string{
+				"account": "tree.xie",
+			}).
+			Set("a", "1").
+			Queries(map[string]string{
+				"type": "2",
+			}).
+			Query("category", "3")
 
-	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("post request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
-		t.Fatalf("response of post request invalid")
-	}
+		resp, body, err := d.Do()
+		assert.Nil(err)
+		assert.Equal(resp.StatusCode, 200)
+		assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	})
+
+	t.Run("post form", func(t *testing.T) {
+		data := make(url.Values)
+		data.Add("type", "1")
+		data.Add("type", "2")
+		data.Set("account", "tree.xie")
+		assert := assert.New(t)
+		defer gock.Off()
+		gock.New("http://aslant.site").
+			Post("/123").
+			MatchHeader("Content-Type", "application/x-www-form-urlencoded").
+			BodyString(`account=tree.xie&type=1&type=2`).
+			Reply(200).
+			JSON(map[string]string{
+				"name": "tree.xie",
+			})
+
+		d := Post("http://aslant.site/:id").
+			Param("id", "123").
+			Send(data)
+		resp, body, err := d.Do()
+		assert.Nil(err)
+		assert.Equal(resp.StatusCode, 200)
+		assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	})
 }
 
 func TestTimeout(t *testing.T) {
+	assert := assert.New(t)
 	d := Get("https://aslant.site/").
 		EnableTrace().
 		Timeout(time.Millisecond)
 	_, _, err := d.Do()
 	ue, ok := err.(*url.Error)
-	if !ok || !ue.Timeout() {
-		t.Fatalf("set request timeout fail")
-	}
+	assert.True(ok)
+	assert.True(ue.Timeout())
 }
 
 func TestEvent(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Get("/").
@@ -195,9 +203,7 @@ func TestEvent(t *testing.T) {
 
 	d := Get(requestURI)
 	d.OnRequest(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
-		if req.URL.String() != requestURI {
-			t.Fatalf("request uri invalid")
-		}
+		assert.Equal(req.URL.String(), requestURI)
 		requestEventBefore = true
 		return
 	})
@@ -225,23 +231,18 @@ func TestEvent(t *testing.T) {
 	})
 
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
-		t.Fatalf("response of get request invalid")
-	}
-	if !requestEventBefore ||
-		!requestEventSuccess ||
-		!responseEventBefore ||
-		!responseEventSuccess ||
-		!doneEvent {
-		t.Fatalf("not all event was emitted")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	assert.True(requestEventBefore)
+	assert.True(requestEventSuccess)
+	assert.True(responseEventBefore)
+	assert.True(responseEventSuccess)
+	assert.True(doneEvent)
 }
 
 func TestResponseBodySnappy(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	var dst []byte
 	buf := snappy.Encode(dst, []byte(`{"name":"tree.xie"}`))
@@ -257,25 +258,20 @@ func TestResponseBodySnappy(t *testing.T) {
 	d := Get("http://aslant.site/").
 		Snappy()
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` ||
-		resp.Header.Get(HeaderContentLength) != "" {
-		t.Fatalf("snappy response of get request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	assert.Equal(resp.Header.Get(HeaderContentLength), "")
 }
 
 func TestResponseBodyBrotli(t *testing.T) {
+	assert := assert.New(t)
 	// abcd的br压缩
 	brBase64 := "iwGAYWJjZAM="
 
 	defer gock.Off()
 	buf, err := base64.StdEncoding.DecodeString(brBase64)
-	if err != nil {
-		t.Fatalf("decode base64 fail, %v", err)
-	}
+	assert.Nil(err)
 	gock.New("http://aslant.site").
 		Get("/").
 		MatchHeader(HeaderAcceptEncoding, GzipEncoding+", "+BrEncoding).
@@ -287,17 +283,14 @@ func TestResponseBodyBrotli(t *testing.T) {
 	d := Get("http://aslant.site/").
 		Br()
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != "abcd" ||
-		resp.Header.Get(HeaderContentLength) != "" {
-		t.Fatalf("br response of get request invalid")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), "abcd")
+	assert.Equal(resp.Header.Get(HeaderContentLength), "")
 }
 
 func TestEnableTrace(t *testing.T) {
+	assert := assert.New(t)
 	defer gock.Off()
 	gock.New("http://aslant.site").
 		Get("/").
@@ -309,22 +302,17 @@ func TestEnableTrace(t *testing.T) {
 	d := Get("http://aslant.site/")
 	d.EnableTrace()
 	resp, body, err := d.Do()
-	if err != nil {
-		t.Fatalf("get request fail, %v", err)
-	}
-	if resp.StatusCode != 200 ||
-		strings.TrimSpace(string(body)) != `{"name":"tree.xie"}` {
-		t.Fatalf("response of get request invalid")
-	}
-	if d.GetHTTPTrace() == nil {
-		t.Fatalf("enable trace fail")
-	}
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	assert.NotNil(d.GetHTTPTrace())
 }
 
 func TestEmitRequest(t *testing.T) {
 	defer gock.Off()
 
 	t.Run("new request", func(t *testing.T) {
+		assert := assert.New(t)
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
@@ -339,12 +327,11 @@ func TestEmitRequest(t *testing.T) {
 		})
 		// 不判断是否出错，只需要后面检查request 是否被替换
 		d.Do()
-		if d.Request != r {
-			t.Fatalf("convert new request fail")
-		}
+		assert.Equal(d.Request, r)
 	})
 
 	t.Run("return error", func(t *testing.T) {
+		assert := assert.New(t)
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
@@ -358,15 +345,14 @@ func TestEmitRequest(t *testing.T) {
 			return
 		})
 		_, _, err := d.Do()
-		if err != e {
-			t.Fatalf("on request event return error fail")
-		}
+		assert.Equal(err, e)
 	})
 }
 
 func TestEmitResponse(t *testing.T) {
 	defer gock.Off()
 	t.Run("new response", func(t *testing.T) {
+		assert := assert.New(t)
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
@@ -382,16 +368,13 @@ func TestEmitResponse(t *testing.T) {
 			return
 		})
 		resp, body, err := d.Do()
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 ||
-			strings.TrimSpace(string(body)) != `{"name":"abcd"}` {
-			t.Fatalf("response of get request invalid")
-		}
+		assert.Nil(err)
+		assert.Equal(resp.StatusCode, 200)
+		assert.Equal(strings.TrimSpace(string(body)), `{"name":"abcd"}`)
 	})
 
 	t.Run("read body by custom", func(t *testing.T) {
+		assert := assert.New(t)
 		gock.New("http://aslant.site").
 			Get("/").
 			Reply(200).
@@ -404,16 +387,13 @@ func TestEmitResponse(t *testing.T) {
 			return
 		})
 		resp, body, err := d.Do()
-		if err != nil {
-			t.Fatalf("get request fail, %v", err)
-		}
-		if resp.StatusCode != 200 ||
-			strings.TrimSpace(string(body)) != `{"name":"abcd"}` {
-			t.Fatalf("response of get request invalid")
-		}
+		assert.Nil(err)
+		assert.Equal(resp.StatusCode, 200)
+		assert.Equal(strings.TrimSpace(string(body)), `{"name":"abcd"}`)
 	})
 
 	t.Run("return error", func(t *testing.T) {
+		assert := assert.New(t)
 		e := errors.New("abcd")
 		gock.New("http://aslant.site").
 			Get("/").
@@ -427,25 +407,21 @@ func TestEmitResponse(t *testing.T) {
 			return
 		})
 		_, _, err := d.Do()
-		if err != e {
-			t.Fatalf("on response event return error fail")
-		}
+		assert.Equal(err, e)
 	})
 }
 
 func TestSetType(t *testing.T) {
+	assert := assert.New(t)
 	d := Post("/users/me")
 	d.Type("json")
-	if d.header.Get(HeaderContentType) != MIMEApplicationJSON {
-		t.Fatalf("set content-type: json fail")
-	}
+	assert.Equal(d.header.Get(HeaderContentType), MIMEApplicationJSON)
 	d.Type("form")
-	if d.header.Get(HeaderContentType) != MIMEApplicationFormUrlencoded {
-		t.Fatalf("set content-type: form fail")
-	}
+	assert.Equal(d.header.Get(HeaderContentType), MIMEApplicationFormUrlencoded)
 }
 
 func TestEmitError(t *testing.T) {
+	assert := assert.New(t)
 	e := errors.New("abcd")
 	d := Get("http://aslant.site/")
 	d.OnError(func(err error, _ *Dusk) (newErr error) {
@@ -454,33 +430,24 @@ func TestEmitError(t *testing.T) {
 	})
 	d.Timeout(time.Nanosecond)
 	_, _, err := d.Do()
-	if err != e {
-		t.Fatalf("on error event return new error fail")
-	}
+	assert.Equal(err, e)
 }
 
 func TestIsDisableCompression(t *testing.T) {
+	assert := assert.New(t)
 	d := new(Dusk)
-	if d.isDisableCompression() {
-		t.Fatalf("should not disable compression")
-	}
+	assert.False(d.isDisableCompression())
 	d.SetClient(&http.Client{
 		Transport: &http.Transport{
 			DisableCompression: true,
 		},
 	})
-	if !d.isDisableCompression() {
-		t.Fatalf("should disable compression")
-	}
+	assert.True(d.isDisableCompression())
 }
 
 func TestGetAttr(t *testing.T) {
+	assert := assert.New(t)
 	d := Get("/:id")
-	if d.GetMethod() != "GET" {
-		t.Fatalf("get method fail")
-	}
-
-	if d.GetPath() != "/:id" {
-		t.Fatalf("get path fail")
-	}
+	assert.Equal(d.GetMethod(), "GET")
+	assert.Equal(d.GetPath(), "/:id")
 }

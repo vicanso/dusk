@@ -431,7 +431,6 @@ func Delete(url string) *Dusk {
 }
 
 func (d *Dusk) newRequest() (req *http.Request, err error) {
-	url := d.GetURL()
 	data := d.data
 	var r io.Reader
 	// get send data reader
@@ -440,20 +439,27 @@ func (d *Dusk) newRequest() (req *http.Request, err error) {
 		if ok {
 			r = v
 		} else {
-			// 如果非reader 序列化为json
-			buf, e := json.Marshal(data)
-			if e != nil {
-				err = e
-				return
+			values, ok := data.(url.Values)
+			// 如果是form，则序列化为 x-www-form-urlencoded
+			if ok {
+				d.Type(formType)
+				r = bytes.NewReader([]byte(values.Encode()))
+			} else {
+				// 如果非reader 序列化为json
+				buf, e := json.Marshal(data)
+				if e != nil {
+					err = e
+					return
+				}
+				r = bytes.NewReader(buf)
 			}
-			r = bytes.NewReader(buf)
 		}
 		// 如果没有设置 content-type 默认为 json
 		if d.header == nil || d.header.Get(HeaderContentType) == "" {
-			d.Type(MIMEApplicationJSON)
+			d.Type(jsonType)
 		}
 	}
-	req, err = http.NewRequest(d.method, url, r)
+	req, err = http.NewRequest(d.method, d.GetURL(), r)
 	if err != nil {
 		return
 	}
