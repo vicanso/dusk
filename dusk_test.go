@@ -202,30 +202,30 @@ func TestEvent(t *testing.T) {
 	doneEvent := false
 
 	d := Get(requestURI)
-	d.OnRequest(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
 		assert.Equal(req.URL.String(), requestURI)
 		requestEventBefore = true
 		return
-	})
+	}, EventTypeBefore)
 
-	d.OnRequestSuccess(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
 		if requestEventBefore {
 			requestEventSuccess = true
 		}
 		return
-	})
-	d.OnResponse(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	}, EventTypeAfter)
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
 		responseEventBefore = true
 		return
-	})
-	d.OnResponseSuccess(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	}, EventTypeBefore)
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
 		if responseEventBefore {
 			responseEventSuccess = true
 		}
 		return
-	})
+	}, EventTypeAfter)
 
-	d.OnDone(func(_ *Dusk) (err error) {
+	d.AddDoneListener(func(_ *Dusk) (err error) {
 		doneEvent = true
 		return
 	})
@@ -321,10 +321,10 @@ func TestEmitRequest(t *testing.T) {
 			})
 		r := httptest.NewRequest("GET", "/users/me", nil)
 		d := Get("http://aslant.site/")
-		d.OnRequest(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		d.AddRequestListener(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
 			newReq = r
 			return
-		})
+		}, EventTypeBefore)
 		// 不判断是否出错，只需要后面检查request 是否被替换
 		d.Do()
 		assert.Equal(d.Request, r)
@@ -340,10 +340,10 @@ func TestEmitRequest(t *testing.T) {
 			})
 		e := errors.New("abcd")
 		d := Get("http://aslant.site/")
-		d.OnRequest(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		d.AddRequestListener(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
 			err = e
 			return
-		})
+		}, EventTypeBefore)
 		_, _, err := d.Do()
 		assert.Equal(err, e)
 	})
@@ -360,13 +360,13 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.OnResponse(func(_ *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		d.AddResponseListener(func(_ *http.Response, _ *Dusk) (newResp *http.Response, err error) {
 			newResp = &http.Response{
 				StatusCode: 200,
 				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(`{"name":"abcd"}`))),
 			}
 			return
-		})
+		}, EventTypeAfter)
 		resp, body, err := d.Do()
 		assert.Nil(err)
 		assert.Equal(resp.StatusCode, 200)
@@ -382,10 +382,10 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.OnResponse(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+		d.AddResponseListener(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
 			d.Body = []byte(`{"name":"abcd"}`)
 			return
-		})
+		}, EventTypeBefore)
 		resp, body, err := d.Do()
 		assert.Nil(err)
 		assert.Equal(resp.StatusCode, 200)
@@ -402,10 +402,10 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.OnResponse(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+		d.AddResponseListener(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
 			err = e
 			return
-		})
+		}, EventTypeBefore)
 		_, _, err := d.Do()
 		assert.Equal(err, e)
 	})
@@ -421,10 +421,17 @@ func TestSetType(t *testing.T) {
 }
 
 func TestEmitError(t *testing.T) {
+	defer ClearErrorListener()
+	globalErrorDone := false
+	AddErrorListener(func(_ error, _ *Dusk) error {
+		globalErrorDone = true
+		return nil
+	})
 	assert := assert.New(t)
 	e := errors.New("abcd")
 	d := Get("http://aslant.site/")
-	d.OnError(func(err error, _ *Dusk) (newErr error) {
+	d.AddErrorListener(func(err error, _ *Dusk) (newErr error) {
+		assert.True(globalErrorDone)
 		newErr = e
 		return
 	})
@@ -450,4 +457,63 @@ func TestGetAttr(t *testing.T) {
 	d := Get("/:id")
 	assert.Equal(d.GetMethod(), "GET")
 	assert.Equal(d.GetPath(), "/:id")
+}
+
+func TestGlobalEvent(t *testing.T) {
+	defer ClearRequestListener()
+	defer ClearResponseListener()
+	assert := assert.New(t)
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(200).
+		JSON(map[string]string{
+			"name": "tree.xie",
+		})
+
+	requestURI := "http://aslant.site/?a=1&b=2"
+	requestEventBefore := false
+	requestEventSuccess := false
+	responseEventBefore := false
+	responseEventSuccess := false
+	doneEvent := false
+	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		assert.Equal(req.URL.String(), requestURI)
+		requestEventBefore = true
+		return
+	}, EventTypeBefore)
+
+	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		if requestEventBefore {
+			requestEventSuccess = true
+		}
+		return
+	}, EventTypeAfter)
+	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		responseEventBefore = true
+		return
+	}, EventTypeBefore)
+	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		if responseEventBefore {
+			responseEventSuccess = true
+		}
+		return
+	}, EventTypeAfter)
+
+	d := Get(requestURI)
+
+	d.AddDoneListener(func(_ *Dusk) (err error) {
+		doneEvent = true
+		return
+	})
+
+	resp, body, err := d.Do()
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 200)
+	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
+	assert.True(requestEventBefore)
+	assert.True(requestEventSuccess)
+	assert.True(responseEventBefore)
+	assert.True(responseEventSuccess)
+	assert.True(doneEvent)
 }

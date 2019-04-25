@@ -4,6 +4,8 @@
 
 Http request client supports interceptors, such as `OnRequest`, `OnRequestSuccess`, `OnResponse` and so on. It supports `br` and `snappy` content encoding.
 
+TODO 测试如果在response阶段return new error，是否需要close body
+
 ## API
 
 ```go

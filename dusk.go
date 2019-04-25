@@ -63,6 +63,12 @@ const (
 	EventTypeAfter
 )
 
+var (
+	globalRequestEvents  []*RequestEvent
+	globalResponseEvents []*ResponseEvent
+	globalErrorListeners []ErrorListener
+)
+
 type (
 	// Decoder compression decoder
 	Decoder func(*http.Response) ([]byte, error)
@@ -93,10 +99,10 @@ type (
 		query          url.Values
 		data           interface{}
 		ctx            context.Context
-		doneEvents     []DoneListener
+		doneListeners  []DoneListener
 		requestEvents  []*RequestEvent
 		responseEvents []*ResponseEvent
-		errorEvents    []ErrorListener
+		errorListeners []ErrorListener
 		url            string
 		path           string
 		method         string
@@ -115,6 +121,57 @@ type (
 		t  int
 	}
 )
+
+// AddRequestListener add request listener for all http requset,
+// it will be called before or after http request.
+// If return new request, it will be overrded the original request.
+// If return new error, it will return error and abort request.
+func AddRequestListener(ln RequestListener, eventType int) {
+	if globalRequestEvents == nil {
+		globalRequestEvents = make([]*RequestEvent, 0)
+	}
+	globalRequestEvents = append(globalRequestEvents, &RequestEvent{
+		ln: ln,
+		t:  eventType,
+	})
+}
+
+// ClearRequestListener clear global request listener
+func ClearRequestListener() {
+	globalRequestEvents = nil
+}
+
+// AddResponseListener add response listener for all http requset,
+// it will be called before or after http response.
+// If return new response, it will be overried the original response.
+// If return new error, it will return error and abort response.
+func AddResponseListener(ln ResponseListener, eventType int) {
+	if globalResponseEvents == nil {
+		globalResponseEvents = make([]*ResponseEvent, 0)
+	}
+	globalResponseEvents = append(globalResponseEvents, &ResponseEvent{
+		ln: ln,
+		t:  eventType,
+	})
+}
+
+// ClearResponseListener clear response listener
+func ClearResponseListener() {
+	globalResponseEvents = nil
+}
+
+// AddErrorListener add error listener for all http request
+func AddErrorListener(ln ErrorListener) {
+	if globalErrorListeners == nil {
+		globalErrorListeners = make([]ErrorListener, 0)
+	}
+	globalErrorListeners = append(globalErrorListeners, ln)
+}
+
+// ClearErrorListener clear all http error listener
+func ClearErrorListener() {
+	globalErrorListeners = nil
+}
 
 func getClient(d *Dusk) *http.Client {
 	c := d.client
@@ -138,7 +195,8 @@ func snappyDecoder(resp *http.Response) (buf []byte, err error) {
 	return
 }
 
-// SnappyDecode decode snappy response
+// SnappyDecode support snappy decode for response,
+// if the Content-Encoding:snappy, the docode function will be called
 func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
 	return decode(resp, d, SnappyEncoding, snappyDecoder)
 }
@@ -171,18 +229,19 @@ func brDecoder(resp *http.Response) (buf []byte, err error) {
 	return
 }
 
-// BrDecode brotli decode
+// BrDecode support brotli decode for response,
+// if the Content-Encoding:br, the docode function will be called
 func BrDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
 	return decode(resp, d, BrEncoding, brDecoder)
 }
 
-// SetClient set client for dusk
+// SetClient set http client for dusk
 func (d *Dusk) SetClient(client *http.Client) *Dusk {
 	d.client = client
 	return d
 }
 
-// GetClient get client of dusk
+// GetClient get http client of dusk
 func (d *Dusk) GetClient() *http.Client {
 	return d.client
 }
@@ -271,18 +330,23 @@ func (d *Dusk) Timeout(timeout time.Duration) *Dusk {
 	return d
 }
 
-// OnDone on done event
-func (d *Dusk) OnDone(ln DoneListener) *Dusk {
-	if d.doneEvents == nil {
-		d.doneEvents = make([]DoneListener, 0)
+// AddDoneListener add done listener
+func (d *Dusk) AddDoneListener(lnList ...DoneListener) *Dusk {
+	if d.doneListeners == nil {
+		d.doneListeners = make([]DoneListener, 0)
 	}
-	d.doneEvents = append(d.doneEvents, ln)
+	d.doneListeners = append(d.doneListeners, lnList...)
+	return d
+}
+
+func (d *Dusk) prependDoneListener(lnList ...DoneListener) *Dusk {
+	d.doneListeners = append(lnList, d.doneListeners...)
 	return d
 }
 
 // EmitDone emit done event
 func (d *Dusk) EmitDone() error {
-	for _, ln := range d.doneEvents {
+	for _, ln := range d.doneListeners {
 		err := ln(d)
 		if err != nil {
 			return err
@@ -291,25 +355,25 @@ func (d *Dusk) EmitDone() error {
 	return nil
 }
 
-func (d *Dusk) addRequestListener(ln RequestListener, t int) *Dusk {
+func (d *Dusk) addRequestEvent(events ...*RequestEvent) *Dusk {
 	if d.requestEvents == nil {
 		d.requestEvents = make([]*RequestEvent, 0)
 	}
-	d.requestEvents = append(d.requestEvents, &RequestEvent{
-		t:  t,
-		ln: ln,
-	})
+	d.requestEvents = append(d.requestEvents, events...)
 	return d
 }
 
-// OnRequest on request event
-func (d *Dusk) OnRequest(ln RequestListener) *Dusk {
-	return d.addRequestListener(ln, EventTypeBefore)
+func (d *Dusk) prependRequestEvent(events ...*RequestEvent) *Dusk {
+	d.requestEvents = append(events, d.requestEvents...)
+	return d
 }
 
-// OnRequestSuccess on request success event
-func (d *Dusk) OnRequestSuccess(ln RequestListener) *Dusk {
-	return d.addRequestListener(ln, EventTypeAfter)
+// AddRequestListener add request listene
+func (d *Dusk) AddRequestListener(ln RequestListener, eventType int) *Dusk {
+	return d.addRequestEvent(&RequestEvent{
+		ln: ln,
+		t:  eventType,
+	})
 }
 
 // EmitRequest emit request event
@@ -329,25 +393,25 @@ func (d *Dusk) EmitRequest(t int) error {
 	return nil
 }
 
-func (d *Dusk) addResponseListener(ln ResponseListener, t int) *Dusk {
+func (d *Dusk) addResponseEvent(events ...*ResponseEvent) *Dusk {
 	if d.responseEvents == nil {
 		d.responseEvents = make([]*ResponseEvent, 0)
 	}
-	d.responseEvents = append(d.responseEvents, &ResponseEvent{
-		t:  t,
-		ln: ln,
-	})
+	d.responseEvents = append(d.responseEvents, events...)
 	return d
 }
 
-// OnResponse on response event
-func (d *Dusk) OnResponse(ln ResponseListener) *Dusk {
-	return d.addResponseListener(ln, EventTypeBefore)
+func (d *Dusk) prependResponseEvent(events ...*ResponseEvent) *Dusk {
+	d.responseEvents = append(events, d.responseEvents...)
+	return d
 }
 
-// OnResponseSuccess on response success event
-func (d *Dusk) OnResponseSuccess(ln ResponseListener) *Dusk {
-	return d.addResponseListener(ln, EventTypeAfter)
+// AddResponseListener add response listener
+func (d *Dusk) AddResponseListener(ln ResponseListener, eventType int) *Dusk {
+	return d.addResponseEvent(&ResponseEvent{
+		ln: ln,
+		t:  EventTypeBefore,
+	})
 }
 
 // EmitResponse emit response event
@@ -367,18 +431,23 @@ func (d *Dusk) EmitResponse(t int) error {
 	return nil
 }
 
-// OnError on error event
-func (d *Dusk) OnError(ln ErrorListener) *Dusk {
-	if d.errorEvents == nil {
-		d.errorEvents = make([]ErrorListener, 0)
+// AddErrorListener add error listener
+func (d *Dusk) AddErrorListener(lnList ...ErrorListener) *Dusk {
+	if d.errorListeners == nil {
+		d.errorListeners = make([]ErrorListener, 0)
 	}
-	d.errorEvents = append(d.errorEvents, ln)
+	d.errorListeners = append(d.errorListeners, lnList...)
+	return d
+}
+
+func (d *Dusk) prependErrorListener(lnList ...ErrorListener) *Dusk {
+	d.errorListeners = append(lnList, d.errorListeners...)
 	return d
 }
 
 // EmitError emit error event
 func (d *Dusk) EmitError(currentErr error) error {
-	for _, ln := range d.errorEvents {
+	for _, ln := range d.errorListeners {
 		err := ln(currentErr, d)
 		if err != nil {
 			return err
@@ -393,11 +462,23 @@ func newDusk(method, requestURL string) *Dusk {
 	if info != nil {
 		path = info.Path
 	}
-	return &Dusk{
+	d := &Dusk{
 		url:    requestURL,
 		path:   path,
 		method: method,
 	}
+
+	if globalRequestEvents != nil {
+		d.addRequestEvent(globalRequestEvents...)
+	}
+	if globalResponseEvents != nil {
+		d.addResponseEvent(globalResponseEvents...)
+	}
+	if globalErrorListeners != nil {
+		d.AddErrorListener(globalErrorListeners...)
+	}
+
+	return d
 }
 
 // Get http get request
@@ -471,7 +552,7 @@ func (d *Dusk) newRequest() (req *http.Request, err error) {
 		}
 		ctx, cancel := context.WithTimeout(currentCtx, d.timeout)
 		d.ctx = ctx
-		d.OnDone(func(_ *Dusk) error {
+		d.AddDoneListener(func(_ *Dusk) error {
 			cancel()
 			return nil
 		})
@@ -522,7 +603,7 @@ func (d *Dusk) Snappy() *Dusk {
 		return d
 	}
 	d.addAcceptEncoding(SnappyEncoding)
-	d.OnResponse(SnappyDecode)
+	d.AddResponseListener(SnappyDecode, EventTypeBefore)
 	return d
 }
 
@@ -532,7 +613,7 @@ func (d *Dusk) Br() *Dusk {
 		return d
 	}
 	d.addAcceptEncoding(BrEncoding)
-	d.OnResponse(BrDecode)
+	d.AddResponseListener(BrDecode, EventTypeBefore)
 	return d
 }
 
@@ -572,6 +653,7 @@ func (d *Dusk) do() (err error) {
 	if err != nil {
 		return
 	}
+	defer resp.Body.Close()
 	err = d.EmitRequest(EventTypeAfter)
 	if err != nil {
 		return
@@ -588,7 +670,6 @@ func (d *Dusk) do() (err error) {
 	if d.Body != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	var buf []byte
 	buf, err = ioutil.ReadAll(resp.Body)
