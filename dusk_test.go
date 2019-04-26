@@ -184,63 +184,6 @@ func TestTimeout(t *testing.T) {
 	assert.True(ue.Timeout())
 }
 
-func TestEvent(t *testing.T) {
-	assert := assert.New(t)
-	defer gock.Off()
-	gock.New("http://aslant.site").
-		Get("/").
-		Reply(200).
-		JSON(map[string]string{
-			"name": "tree.xie",
-		})
-
-	requestURI := "http://aslant.site/?a=1&b=2"
-	requestEventBefore := false
-	requestEventSuccess := false
-	responseEventBefore := false
-	responseEventSuccess := false
-	doneEvent := false
-
-	d := Get(requestURI)
-	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
-		assert.Equal(req.URL.String(), requestURI)
-		requestEventBefore = true
-		return
-	}, EventTypeBefore)
-
-	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
-		if requestEventBefore {
-			requestEventSuccess = true
-		}
-		return
-	}, EventTypeAfter)
-	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-		responseEventBefore = true
-		return
-	}, EventTypeBefore)
-	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-		if responseEventBefore {
-			responseEventSuccess = true
-		}
-		return
-	}, EventTypeAfter)
-
-	d.AddDoneListener(func(_ *Dusk) (err error) {
-		doneEvent = true
-		return
-	})
-
-	resp, body, err := d.Do()
-	assert.Nil(err)
-	assert.Equal(resp.StatusCode, 200)
-	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
-	assert.True(requestEventBefore)
-	assert.True(requestEventSuccess)
-	assert.True(responseEventBefore)
-	assert.True(responseEventSuccess)
-	assert.True(doneEvent)
-}
-
 func TestResponseBodySnappy(t *testing.T) {
 	assert := assert.New(t)
 	defer gock.Off()
@@ -366,7 +309,7 @@ func TestEmitResponse(t *testing.T) {
 				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(`{"name":"abcd"}`))),
 			}
 			return
-		}, EventTypeAfter)
+		}, EventTypeBefore)
 		resp, body, err := d.Do()
 		assert.Nil(err)
 		assert.Equal(resp.StatusCode, 200)
@@ -459,7 +402,7 @@ func TestGetAttr(t *testing.T) {
 	assert.Equal(d.GetPath(), "/:id")
 }
 
-func TestGlobalEvent(t *testing.T) {
+func TestEvent(t *testing.T) {
 	defer ClearRequestListener()
 	defer ClearResponseListener()
 	assert := assert.New(t)
@@ -472,38 +415,79 @@ func TestGlobalEvent(t *testing.T) {
 		})
 
 	requestURI := "http://aslant.site/?a=1&b=2"
-	requestEventBefore := false
-	requestEventSuccess := false
-	responseEventBefore := false
-	responseEventSuccess := false
-	doneEvent := false
+
+	events := make([]string, 0)
+
 	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
 		assert.Equal(req.URL.String(), requestURI)
-		requestEventBefore = true
+		events = append(events, "global request before")
 		return
 	}, EventTypeBefore)
 
 	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
-		if requestEventBefore {
-			requestEventSuccess = true
-		}
+		events = append(events, "global request after")
 		return
 	}, EventTypeAfter)
 	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-		responseEventBefore = true
+		events = append(events, "global response before")
 		return
 	}, EventTypeBefore)
 	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-		if responseEventBefore {
-			responseEventSuccess = true
-		}
+		events = append(events, "global response after")
+		return
+	}, EventTypeAfter)
+	AddDoneListener(func(_ *Dusk) (err error) {
+		events = append(events, "global done")
+		return
+	})
+
+	ins := NewInstance()
+
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		events = append(events, "instance request before")
+		return
+	}, EventTypeBefore)
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		events = append(events, "instance request after")
 		return
 	}, EventTypeAfter)
 
-	d := Get(requestURI)
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		events = append(events, "instance response before")
+		return
+	}, EventTypeBefore)
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		events = append(events, "instance response after")
+		return
+	}, EventTypeAfter)
+
+	ins.AddDoneListener(func(_ *Dusk) (err error) {
+		events = append(events, "instance done")
+		return
+	})
+
+	d := ins.Get(requestURI)
+
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		events = append(events, "request before")
+		return
+	}, EventTypeBefore)
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		events = append(events, "request after")
+		return
+	}, EventTypeAfter)
+
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		events = append(events, "response before")
+		return
+	}, EventTypeBefore)
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+		events = append(events, "response after")
+		return
+	}, EventTypeAfter)
 
 	d.AddDoneListener(func(_ *Dusk) (err error) {
-		doneEvent = true
+		events = append(events, "done")
 		return
 	})
 
@@ -511,9 +495,21 @@ func TestGlobalEvent(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal(resp.StatusCode, 200)
 	assert.Equal(strings.TrimSpace(string(body)), `{"name":"tree.xie"}`)
-	assert.True(requestEventBefore)
-	assert.True(requestEventSuccess)
-	assert.True(responseEventBefore)
-	assert.True(responseEventSuccess)
-	assert.True(doneEvent)
+	assert.Equal(events, []string{
+		"request before",
+		"instance request before",
+		"global request before",
+		"request after",
+		"instance request after",
+		"global request after",
+		"response before",
+		"instance response before",
+		"global response before",
+		"response after",
+		"instance response after",
+		"global response after",
+		"done",
+		"instance done",
+		"global done",
+	})
 }

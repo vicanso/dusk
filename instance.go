@@ -73,16 +73,16 @@ func (ins *Instance) AddDoneListener(ln DoneListener) *Instance {
 
 func (ins *Instance) attatchEvents(d *Dusk) {
 	if ins.requestEvents != nil {
-		d.prependRequestEvent(ins.requestEvents...)
+		d.addRequestEvent(ins.requestEvents...)
 	}
 	if ins.responseEvent != nil {
-		d.prependResponseEvent(ins.responseEvent...)
+		d.addResponseEvent(ins.responseEvent...)
 	}
 	if ins.errorListeners != nil {
-		d.prependErrorListener(ins.errorListeners...)
+		d.AddErrorListener(ins.errorListeners...)
 	}
 	if ins.doneListeners != nil {
-		d.prependDoneListener(ins.doneListeners...)
+		d.AddDoneListener(ins.doneListeners...)
 	}
 }
 

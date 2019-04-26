@@ -67,6 +67,7 @@ var (
 	globalRequestEvents  []*RequestEvent
 	globalResponseEvents []*ResponseEvent
 	globalErrorListeners []ErrorListener
+	doneListeners        []DoneListener
 )
 
 type (
@@ -171,6 +172,14 @@ func AddErrorListener(ln ErrorListener) {
 // ClearErrorListener clear all http error listener
 func ClearErrorListener() {
 	globalErrorListeners = nil
+}
+
+// AddDoneListener add done listener
+func AddDoneListener(lnList ...DoneListener) {
+	if doneListeners == nil {
+		doneListeners = make([]DoneListener, 0)
+	}
+	doneListeners = append(doneListeners, lnList...)
 }
 
 func getClient(d *Dusk) *http.Client {
@@ -339,14 +348,14 @@ func (d *Dusk) AddDoneListener(lnList ...DoneListener) *Dusk {
 	return d
 }
 
-func (d *Dusk) prependDoneListener(lnList ...DoneListener) *Dusk {
-	d.doneListeners = append(lnList, d.doneListeners...)
-	return d
-}
-
 // EmitDone emit done event
 func (d *Dusk) EmitDone() error {
-	for _, ln := range d.doneListeners {
+	size := len(d.doneListeners)
+	if size == 0 {
+		return nil
+	}
+	for i := size - 1; i >= 0; i-- {
+		ln := d.doneListeners[i]
 		err := ln(d)
 		if err != nil {
 			return err
@@ -363,11 +372,6 @@ func (d *Dusk) addRequestEvent(events ...*RequestEvent) *Dusk {
 	return d
 }
 
-func (d *Dusk) prependRequestEvent(events ...*RequestEvent) *Dusk {
-	d.requestEvents = append(events, d.requestEvents...)
-	return d
-}
-
 // AddRequestListener add request listene
 func (d *Dusk) AddRequestListener(ln RequestListener, eventType int) *Dusk {
 	return d.addRequestEvent(&RequestEvent{
@@ -378,7 +382,14 @@ func (d *Dusk) AddRequestListener(ln RequestListener, eventType int) *Dusk {
 
 // EmitRequest emit request event
 func (d *Dusk) EmitRequest(t int) error {
-	for _, e := range d.requestEvents {
+	size := len(d.requestEvents)
+	if size == 0 {
+		return nil
+	}
+	// 从后往前执行，后加入的先执行
+	// 本请求的 --> instance --> global
+	for i := size - 1; i >= 0; i-- {
+		e := d.requestEvents[i]
 		if e.t != t {
 			continue
 		}
@@ -401,22 +412,22 @@ func (d *Dusk) addResponseEvent(events ...*ResponseEvent) *Dusk {
 	return d
 }
 
-func (d *Dusk) prependResponseEvent(events ...*ResponseEvent) *Dusk {
-	d.responseEvents = append(events, d.responseEvents...)
-	return d
-}
-
 // AddResponseListener add response listener
 func (d *Dusk) AddResponseListener(ln ResponseListener, eventType int) *Dusk {
 	return d.addResponseEvent(&ResponseEvent{
 		ln: ln,
-		t:  EventTypeBefore,
+		t:  eventType,
 	})
 }
 
 // EmitResponse emit response event
 func (d *Dusk) EmitResponse(t int) error {
-	for _, e := range d.responseEvents {
+	size := len(d.responseEvents)
+	if size == 0 {
+		return nil
+	}
+	for i := size - 1; i >= 0; i-- {
+		e := d.responseEvents[i]
 		if e.t != t {
 			continue
 		}
@@ -437,11 +448,6 @@ func (d *Dusk) AddErrorListener(lnList ...ErrorListener) *Dusk {
 		d.errorListeners = make([]ErrorListener, 0)
 	}
 	d.errorListeners = append(d.errorListeners, lnList...)
-	return d
-}
-
-func (d *Dusk) prependErrorListener(lnList ...ErrorListener) *Dusk {
-	d.errorListeners = append(lnList, d.errorListeners...)
 	return d
 }
 
@@ -476,6 +482,9 @@ func newDusk(method, requestURL string) *Dusk {
 	}
 	if globalErrorListeners != nil {
 		d.AddErrorListener(globalErrorListeners...)
+	}
+	if doneListeners != nil {
+		d.AddDoneListener(doneListeners...)
 	}
 
 	return d
