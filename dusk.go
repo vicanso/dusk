@@ -641,6 +641,7 @@ func (d *Dusk) isDisableCompression() bool {
 func (d *Dusk) do() (err error) {
 	req := d.Request
 	c := getClient(d)
+	err = d.EmitRequest(EventTypeBefore)
 	// 如果启用trace ，则添加相应的 context
 	if d.enabledTrace {
 		trace, ht := NewClientTrace()
@@ -654,7 +655,6 @@ func (d *Dusk) do() (err error) {
 		d.Request = req
 		d.ht = ht
 	}
-	err = d.EmitRequest(EventTypeBefore)
 	if err != nil {
 		return
 	}
