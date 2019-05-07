@@ -76,9 +76,9 @@ type (
 	// DoneListener done event listener
 	DoneListener func(*Dusk) error
 	// RequestListener request event listener
-	RequestListener func(*http.Request, *Dusk) (newReq *http.Request, newErr error)
+	RequestListener func(*http.Request, *Dusk) (newErr error)
 	// ResponseListener response event listener
-	ResponseListener func(*http.Response, *Dusk) (newResp *http.Response, newErr error)
+	ResponseListener func(*http.Response, *Dusk) (newErr error)
 	// ErrorListener error event listener
 	ErrorListener func(error, *Dusk) (newErr error)
 
@@ -206,11 +206,11 @@ func snappyDecoder(resp *http.Response) (buf []byte, err error) {
 
 // SnappyDecode support snappy decode for response,
 // if the Content-Encoding:snappy, the docode function will be called
-func SnappyDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+func SnappyDecode(resp *http.Response, d *Dusk) (newErr error) {
 	return decode(resp, d, SnappyEncoding, snappyDecoder)
 }
 
-func decode(resp *http.Response, d *Dusk, encoding string, decoder Decoder) (newResp *http.Response, newErr error) {
+func decode(resp *http.Response, d *Dusk, encoding string, decoder Decoder) (newErr error) {
 	if resp.Header.Get(HeaderContentEncoding) != encoding {
 		return
 	}
@@ -240,7 +240,7 @@ func brDecoder(resp *http.Response) (buf []byte, err error) {
 
 // BrDecode support brotli decode for response,
 // if the Content-Encoding:br, the docode function will be called
-func BrDecode(resp *http.Response, d *Dusk) (newResp *http.Response, newErr error) {
+func BrDecode(resp *http.Response, d *Dusk) (newErr error) {
 	return decode(resp, d, BrEncoding, brDecoder)
 }
 
@@ -393,12 +393,9 @@ func (d *Dusk) EmitRequest(t int) error {
 		if e.t != t {
 			continue
 		}
-		newReq, err := e.ln(d.Request, d)
+		err := e.ln(d.Request, d)
 		if err != nil {
 			return err
-		}
-		if newReq != nil {
-			d.Request = newReq
 		}
 	}
 	return nil
@@ -431,12 +428,9 @@ func (d *Dusk) EmitResponse(t int) error {
 		if e.t != t {
 			continue
 		}
-		newResp, err := e.ln(d.Response, d)
+		err := e.ln(d.Response, d)
 		if err != nil {
 			return err
-		}
-		if newResp != nil {
-			d.Response = newResp
 		}
 	}
 	return nil

@@ -264,8 +264,8 @@ func TestEmitRequest(t *testing.T) {
 			})
 		r := httptest.NewRequest("GET", "/users/me", nil)
 		d := Get("http://aslant.site/")
-		d.AddRequestListener(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
-			newReq = r
+		d.AddRequestListener(func(_ *http.Request, d *Dusk) (err error) {
+			d.Request = r
 			return
 		}, EventTypeBefore)
 		// 不判断是否出错，只需要后面检查request 是否被替换
@@ -283,7 +283,7 @@ func TestEmitRequest(t *testing.T) {
 			})
 		e := errors.New("abcd")
 		d := Get("http://aslant.site/")
-		d.AddRequestListener(func(_ *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+		d.AddRequestListener(func(_ *http.Request, _ *Dusk) (err error) {
 			err = e
 			return
 		}, EventTypeBefore)
@@ -303,11 +303,9 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.AddResponseListener(func(_ *http.Response, _ *Dusk) (newResp *http.Response, err error) {
-			newResp = &http.Response{
-				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(`{"name":"abcd"}`))),
-			}
+		d.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
+			resp.StatusCode = 200
+			resp.Body = ioutil.NopCloser(bytes.NewBuffer([]byte(`{"name":"abcd"}`)))
 			return
 		}, EventTypeBefore)
 		resp, body, err := d.Do()
@@ -325,7 +323,7 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.AddResponseListener(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+		d.AddResponseListener(func(_ *http.Response, d *Dusk) (err error) {
 			d.Body = []byte(`{"name":"abcd"}`)
 			return
 		}, EventTypeBefore)
@@ -345,7 +343,7 @@ func TestEmitResponse(t *testing.T) {
 				"name": "tree.xie",
 			})
 		d := Get("http://aslant.site/")
-		d.AddResponseListener(func(_ *http.Response, d *Dusk) (newResp *http.Response, err error) {
+		d.AddResponseListener(func(_ *http.Response, d *Dusk) (err error) {
 			err = e
 			return
 		}, EventTypeBefore)
@@ -418,21 +416,21 @@ func TestEvent(t *testing.T) {
 
 	events := make([]string, 0)
 
-	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		assert.Equal(req.URL.String(), requestURI)
 		events = append(events, "global request before")
 		return
 	}, EventTypeBefore)
 
-	AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		events = append(events, "global request after")
 		return
 	}, EventTypeAfter)
-	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "global response before")
 		return
 	}, EventTypeBefore)
-	AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "global response after")
 		return
 	}, EventTypeAfter)
@@ -443,20 +441,20 @@ func TestEvent(t *testing.T) {
 
 	ins := NewInstance()
 
-	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		events = append(events, "instance request before")
 		return
 	}, EventTypeBefore)
-	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		events = append(events, "instance request after")
 		return
 	}, EventTypeAfter)
 
-	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "instance response before")
 		return
 	}, EventTypeBefore)
-	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "instance response after")
 		return
 	}, EventTypeAfter)
@@ -468,20 +466,20 @@ func TestEvent(t *testing.T) {
 
 	d := ins.Get(requestURI)
 
-	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		events = append(events, "request before")
 		return
 	}, EventTypeBefore)
-	d.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	d.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		events = append(events, "request after")
 		return
 	}, EventTypeAfter)
 
-	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "response before")
 		return
 	}, EventTypeBefore)
-	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	d.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		events = append(events, "response after")
 		return
 	}, EventTypeAfter)

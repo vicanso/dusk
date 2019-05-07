@@ -41,22 +41,22 @@ func TestInstanceEvent(t *testing.T) {
 	responseBeforeDone := false
 	responseAfterDone := false
 
-	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		requestBeforeDone = true
 		return
 	}, EventTypeBefore)
 
-	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (newReq *http.Request, err error) {
+	ins.AddRequestListener(func(req *http.Request, _ *Dusk) (err error) {
 		requestAfterDone = true
 		return
 	}, EventTypeAfter)
 
-	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		responseBeforeDone = true
 		return
 	}, EventTypeBefore)
 
-	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (newResp *http.Response, err error) {
+	ins.AddResponseListener(func(resp *http.Response, _ *Dusk) (err error) {
 		responseAfterDone = true
 		return
 	}, EventTypeAfter)
