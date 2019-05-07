@@ -173,6 +173,36 @@ func TestHTTPPost(t *testing.T) {
 	})
 }
 
+func TestSetConfig(t *testing.T) {
+	assert := assert.New(t)
+	defer gock.Off()
+	defer SetConfig(Config{})
+	gock.New("http://aslant.site").
+		Get("/").
+		MatchHeader("X-Token", "abc").
+		Reply(204)
+
+	headers := make(http.Header)
+	headers.Add("X-Token", "abc")
+	cfg := Config{
+		BaseURL: "http://aslant.site",
+		Headers: headers,
+	}
+	SetConfig(cfg)
+	resp, _, err := Get("/").Do()
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 204)
+
+	gock.New("http://aslant.site").
+		Get("/abc").
+		MatchHeader("X-Token", "abc").
+		Reply(204)
+
+	resp, _, err = Get("http://aslant.site/abc").Do()
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 204)
+}
+
 func TestTimeout(t *testing.T) {
 	assert := assert.New(t)
 	d := Get("https://aslant.site/").

@@ -52,6 +52,9 @@ const (
 
 	jsonType = "json"
 	formType = "form"
+
+	httpProtocol  = "http://"
+	httpsProtocol = "https://"
 )
 
 const (
@@ -68,9 +71,21 @@ var (
 	globalResponseEvents []*ResponseEvent
 	globalErrorListeners []ErrorListener
 	doneListeners        []DoneListener
+
+	// defaultConfig default config for all request
+	defaultConfig *Config
 )
 
 type (
+	// Config the config for request
+	Config struct {
+		// BaseURL it will be prepended to url unless url is absolute.
+		BaseURL string
+		// Headers it will be added to request header
+		Headers http.Header
+		// Timeout timeout for request
+		Timeout time.Duration
+	}
 	// Decoder compression decoder
 	Decoder func(*http.Response) ([]byte, error)
 	// DoneListener done event listener
@@ -456,7 +471,19 @@ func (d *Dusk) EmitError(currentErr error) error {
 	return nil
 }
 
+func prependURL(requestURL string, config *Config) string {
+	// 如果有配置了base url，而且当前请求不是以绝对路径
+	if config != nil && config.BaseURL != "" {
+		if !(strings.HasPrefix(requestURL, httpProtocol) || strings.HasPrefix(requestURL, httpsProtocol)) {
+			requestURL = config.BaseURL + requestURL
+		}
+	}
+	return requestURL
+}
+
 func newDusk(method, requestURL string) *Dusk {
+	requestURL = prependURL(requestURL, defaultConfig)
+
 	info, _ := url.Parse(requestURL)
 	path := ""
 	if info != nil {
@@ -466,6 +493,9 @@ func newDusk(method, requestURL string) *Dusk {
 		url:    requestURL,
 		path:   path,
 		method: method,
+	}
+	if defaultConfig != nil && defaultConfig.Timeout != 0 {
+		d.Timeout(defaultConfig.Timeout)
 	}
 
 	if globalRequestEvents != nil {
@@ -514,6 +544,17 @@ func Delete(url string) *Dusk {
 	return newDusk(http.MethodDelete, url)
 }
 
+// 添加 config 中配置的http头
+func addConfigHeader(req *http.Request, config *Config) {
+	if config != nil {
+		for key, values := range config.Headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
+}
+
 func (d *Dusk) newRequest() (req *http.Request, err error) {
 	data := d.data
 	var r io.Reader
@@ -547,6 +588,7 @@ func (d *Dusk) newRequest() (req *http.Request, err error) {
 	if err != nil {
 		return
 	}
+	addConfigHeader(req, defaultConfig)
 	// 如果有设置超时，则调整context
 	if d.timeout != 0 {
 		currentCtx := d.ctx
@@ -747,4 +789,9 @@ func (d *Dusk) GetURL() string {
 // GetPath get path of request
 func (d *Dusk) GetPath() string {
 	return d.path
+}
+
+// SetConfig set config
+func SetConfig(c Config) {
+	defaultConfig = &c
 }

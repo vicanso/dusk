@@ -14,6 +14,10 @@
 
 package dusk
 
+import (
+	"net/http"
+)
+
 type (
 	// Instance dusk instance
 	Instance struct {
@@ -21,12 +25,20 @@ type (
 		responseEvent  []*ResponseEvent
 		errorListeners []ErrorListener
 		doneListeners  []DoneListener
+		config         *Config
 	}
 )
 
 // NewInstance new instance
 func NewInstance() *Instance {
 	return &Instance{}
+}
+
+// NewInstanceWithConfig new instance with config
+func NewInstanceWithConfig(config Config) *Instance {
+	return &Instance{
+		config: &config,
+	}
 }
 
 // AddRequestListener add request listener
@@ -71,7 +83,7 @@ func (ins *Instance) AddDoneListener(ln DoneListener) *Instance {
 	return ins
 }
 
-func (ins *Instance) attatchEvents(d *Dusk) {
+func (ins *Instance) init(d *Dusk) {
 	if ins.requestEvents != nil {
 		d.addRequestEvent(ins.requestEvents...)
 	}
@@ -84,46 +96,71 @@ func (ins *Instance) attatchEvents(d *Dusk) {
 	if ins.doneListeners != nil {
 		d.AddDoneListener(ins.doneListeners...)
 	}
+	cfg := ins.config
+	if cfg != nil {
+		if len(cfg.Headers) != 0 {
+			// 添加自定义请求头
+			d.AddRequestListener(func(req *http.Request, _ *Dusk) error {
+				addConfigHeader(req, cfg)
+				return nil
+			}, EventTypeBefore)
+		}
+		if cfg.Timeout != 0 {
+			d.Timeout(cfg.Timeout)
+		}
+	}
 }
 
 // Get http get request
 func (ins *Instance) Get(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Get(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
 }
 
 // Head http head request
 func (ins *Instance) Head(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Head(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
 }
 
 // Post http post request
 func (ins *Instance) Post(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Post(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
 }
 
 // Put http put request
 func (ins *Instance) Put(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Put(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
 }
 
 // Patch http patch request
 func (ins *Instance) Patch(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Patch(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
 }
 
 // Delete http delete request
 func (ins *Instance) Delete(url string) *Dusk {
+	url = prependURL(url, ins.config)
 	d := Delete(url)
-	ins.attatchEvents(d)
+	ins.init(d)
 	return d
+}
+
+// SetConfig set config for instance
+func (ins *Instance) SetConfig(config Config) *Instance {
+	ins.config = &config
+	return ins
 }

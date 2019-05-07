@@ -132,3 +132,23 @@ func TestInstanceDoneListener(t *testing.T) {
 	assert.Equal(resp.StatusCode, 200)
 	assert.True(doneListenerDone)
 }
+
+func TestInstanceSetConfig(t *testing.T) {
+	assert := assert.New(t)
+	ins := NewInstance()
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		MatchHeader("X-Token", "abc").
+		Reply(204)
+
+	headers := make(http.Header)
+	headers.Add("X-Token", "abc")
+	ins.SetConfig(Config{
+		BaseURL: "http://aslant.site",
+		Headers: headers,
+	})
+	resp, _, err := ins.Get("/").Do()
+	assert.Nil(err)
+	assert.Equal(resp.StatusCode, 204)
+}

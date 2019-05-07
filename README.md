@@ -7,11 +7,11 @@ Http request client supports interceptors, such as `OnRequest`, `OnRequestSucces
 ## API
 
 ```go
-dusk.AddRequestListener(func(req *http.Request, d *dusk.Dusk) (newReq *http.Request, newErr error) {
+dusk.AddRequestListener(func(req *http.Request, d *dusk.Dusk) (newErr error) {
   fmt.Println("global request event")
   return
 }, dusk.EventTypeBefore)
-dusk.AddResponseListener(func(resp *http.Response, d *dusk.Dusk) (newResp *http.Response, newError error) {
+dusk.AddResponseListener(func(resp *http.Response, d *dusk.Dusk) (newError error) {
   fmt.Println("global response event")
   return
 }, dusk.EventTypeBefore)
@@ -23,14 +23,14 @@ d.SetClient(&http.Client{
 })
 d.EnableTrace()
 // 请求发出前触发此事件
-d.AddRequestListener(func(req *http.Request, d *dusk.Dusk) (newReq *http.Request, newErr error) {
+d.AddRequestListener(func(req *http.Request, d *dusk.Dusk) (newErr error) {
   fmt.Println("before request event")
   // 如果需要可以生成新的请求，则赋值至 newReq
   // 如果需要生成新的错误，则赋值至 newError，则请求出错返回
   return
 }, dusk.EventTypeBefore)
 // 当请求有响应时触发此事件
-d.AddResponseListener(func(resp *http.Response, d *dusk.Dusk) (newResp *http.Response, newError error) {
+d.AddResponseListener(func(resp *http.Response, d *dusk.Dusk) (newError error) {
   fmt.Println("before response event")
   // 如果需要返回新的响应，则赋值至 newResp
   // 如果需要生成新的错误，则赋值至 newError，则请求出错返回
@@ -77,7 +77,7 @@ Create an http request instance, it support http requsets.
 ```go
 ins := dusk.NewInstance()
 
-ins.AddRequestListener(func(req *http.Request, _ *dusk.Dusk) (newReq *http.Request, newErr error) {
+ins.AddRequestListener(func(req *http.Request, _ *dusk.Dusk) (newErr error) {
   req.URL.Scheme = "https"
   req.URL.Host = "www.baidu.com"
   return
