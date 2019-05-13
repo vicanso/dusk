@@ -695,6 +695,7 @@ func (d *Dusk) do() (err error) {
 		return
 	}
 	resp, err := c.Do(req)
+	d.Response = resp
 	if err != nil {
 		return
 	}
@@ -703,14 +704,11 @@ func (d *Dusk) do() (err error) {
 	if err != nil {
 		return
 	}
-	d.Response = resp
 	// 触发 response 事件
 	err = d.EmitResponse(EventTypeBefore)
 	if err != nil {
 		return
 	}
-	// 因此在 response 事件中有可能会生成新的 response
-	resp = d.Response
 	// 如果已获取到数据，则返回
 	if d.Body != nil {
 		return
@@ -754,11 +752,13 @@ func (d *Dusk) Do() (resp *http.Response, body []byte, err error) {
 	}
 	d.Request = req
 	err = d.do()
+	// 就算是出错了，response也有可能有返回
+	// 如自定义把400等错误转换为error
+	resp = d.Response
 	if err != nil {
 		done()
 		return
 	}
-	resp = d.Response
 	body = d.Body
 	done()
 	return

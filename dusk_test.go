@@ -382,6 +382,28 @@ func TestEmitResponse(t *testing.T) {
 	})
 }
 
+func TestConvertResponseError(t *testing.T) {
+	assert := assert.New(t)
+	defer gock.Off()
+	gock.New("http://aslant.site").
+		Get("/").
+		Reply(400).
+		JSON(map[string]string{
+			"message": "abcd",
+		})
+	d := Get("http://aslant.site/")
+	d.AddResponseListener(func(resp *http.Response, d *Dusk) (err error) {
+		if resp.StatusCode < 400 {
+			return nil
+		}
+		return errors.New("abcd")
+	}, EventTypeAfter)
+
+	resp, _, err := d.Do()
+	assert.Equal(resp.StatusCode, 400)
+	assert.Equal(err.Error(), "abcd")
+}
+
 func TestSetType(t *testing.T) {
 	assert := assert.New(t)
 	d := Post("/users/me")
