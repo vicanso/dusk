@@ -1,5 +1,7 @@
 # dusk
 
+This repo isn't maintenanced, you can try [go-axios](https://github.com/vicanso/go-axios).
+
 [![Build Status](https://img.shields.io/travis/vicanso/dusk.svg?label=linux+build)](https://travis-ci.org/vicanso/dusk)
 
 Http request client supports interceptors, such as `OnRequest`, `OnRequestSuccess`, `OnResponse` and so on. It supports `br` and `snappy` content encoding.
